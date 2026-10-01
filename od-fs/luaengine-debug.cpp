@@ -21,6 +21,7 @@
 #include "newcpu.h"
 #include "options.h"
 
+#include <unordered_set>
 #include <vector>
 
 #define COMMAND_OUTPUT_SIZE (256 * 1024)
@@ -53,6 +54,9 @@ struct lua_exception_watch {
 #define VECTOR_HALT -2
 
 static std::vector<lua_breakpoint> g_breakpoints;
+// The addresses of the breakpoints. This is what is looked at before every
+// instruction, so that the list above is only gone through on a hit.
+static std::unordered_set<uaecptr> g_breakpoint_addresses;
 static std::vector<lua_exception_watch> g_exception_watches;
 static std::vector<lua_tap> g_taps;
 static int g_next_id = 1;
@@ -73,6 +77,14 @@ void luaengine_suspend_taps(bool suspend)
 bool luaengine_debug_active(void)
 {
     return !g_breakpoints.empty() || g_step_instructions > 0;
+}
+
+static void update_breakpoint_addresses(void)
+{
+    g_breakpoint_addresses.clear();
+    for (const lua_breakpoint &breakpoint : g_breakpoints) {
+        g_breakpoint_addresses.insert(breakpoint.address);
+    }
 }
 
 void luaengine_debug_mark_instruction(void)
@@ -107,6 +119,9 @@ void luaengine_debug_instruction(void)
         if (g_step_instructions == 0) {
             luaengine_stop("step", 0, pc);
         }
+    }
+    if (g_breakpoint_addresses.find(pc) == g_breakpoint_addresses.end()) {
+        return;
     }
     // Callbacks can add and remove breakpoints.
     std::vector<lua_breakpoint> breakpoints = g_breakpoints;
@@ -230,6 +245,7 @@ static int l_dbg_bpset(lua_State *L)
         breakpoint.callback = luaL_ref(L, LUA_REGISTRYINDEX);
     }
     g_breakpoints.push_back(breakpoint);
+    g_breakpoint_addresses.insert(breakpoint.address);
     luaengine_debug_mark_instruction();
     set_special(SPCFLAG_BRK);
     lua_pushinteger(L, breakpoint.id);
@@ -247,6 +263,7 @@ static int l_dbg_bpclear(lua_State *L)
             g_breakpoints.erase(g_breakpoints.begin() + i - 1);
         }
     }
+    update_breakpoint_addresses();
     return 0;
 }
 
@@ -546,6 +563,7 @@ void luaengine_debug_free(void)
     }
     g_taps.clear();
     g_breakpoints.clear();
+    g_breakpoint_addresses.clear();
     g_exception_watches.clear();
     g_step_instructions = 0;
     g_taps_suspended = false;

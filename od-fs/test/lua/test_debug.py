@@ -88,6 +88,23 @@ class BreakpointTest(DebugTestCase):
         self.lua.call("dbg.bpclear()")
         self.assertEqual(self.lua.eval("dbg.bplist()"), [])
 
+    def test_two_breakpoints_at_one_address(self) -> None:
+        self.lua.call(
+            f"calls = 0 first = dbg.bpset({self.addq}, function() calls = calls + 1 end) "
+            f"dbg.bpset({self.addq}, function() calls = calls + 100 end)"
+        )
+        self.lua.call("emu.wait_frames(2) dbg.bpclear(first) calls = 0")
+        # The address is still watched after one of the two is removed.
+        calls = self.lua.eval("emu.wait_frames(3) return calls")
+        self.assertGreaterEqual(calls, 200)
+        self.assertEqual(calls % 100, 0)
+
+    def test_many_breakpoints(self) -> None:
+        self.lua.call("for i = 1, 2000 do dbg.bpset(0x200000 + i * 2, function() end) end")
+        self.lua.call(f"hits = 0 dbg.bpset({self.addq}, function() hits = hits + 1 end)")
+        self.assertGreaterEqual(self.lua.eval("emu.wait_frames(5) return hits"), 4)
+        self.assertEqual(len(self.lua.eval("dbg.bplist()")), 2001)
+
     def test_cleared_breakpoint_does_not_stop(self) -> None:
         self.lua.call(f"dbg.bpset({self.addq}) dbg.wait() dbg.bpclear() dbg.go()")
         self.assertIsNone(self.lua.eval("dbg.wait(5)"))

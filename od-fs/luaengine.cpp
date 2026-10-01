@@ -618,16 +618,19 @@ void uae_lua_service(void)
     if (new_frame) {
         luaengine_remote_poll();
     }
+    // The rest is done before every instruction while there are
+    // breakpoints, so it is kept short.
     if (luaengine_debug_active()) {
         luaengine_debug_instruction();
     }
     if (g_stop_requested) {
         stopped_loop();
+        // The instruction we stopped at has been checked. Requests handled
+        // while stopped can have added breakpoints, also at this address.
+        luaengine_debug_mark_instruction();
     }
     if (luaengine_debug_active()) {
-        // Come back here before the next instruction, which is not the one
-        // we just checked or stopped at.
-        luaengine_debug_mark_instruction();
+        // Come back here before the next instruction.
         set_special(SPCFLAG_BRK);
     }
 }
