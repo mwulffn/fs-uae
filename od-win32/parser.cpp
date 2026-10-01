@@ -15,45 +15,27 @@
 
 #include <windows.h>
 #include <winspool.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <mmsystem.h>
-#include <commctrl.h>
-#include <commdlg.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <io.h>
 
 #include <setupapi.h>
-#include <Ntddpar.h>
 
 #include "sysdeps.h"
 #include "options.h"
-#include "gensound.h"
 #include "events.h"
-#include "uae.h"
 #include "include/memory.h"
 #include "custom.h"
 #include "autoconf.h"
-#include "newcpu.h"
 #include "traps.h"
-#include "registry.h"
-#include "od-win32/win32gui.h"
 #include "od-win32/parser.h"
 #include "od-win32/midi.h"
 #include "od-win32/ahidsound.h"
 #include "picasso96_win.h"
-#include "win32gfx.h"
 #include "win32.h"
 #include "ioport.h"
 #include "parallel.h"
 #include "zfile.h"
 #include "threaddep/thread.h"
 #include "serial.h"
-#include "savestate.h"
 #include "ahidsound_new.h"
-#include "uaeipc.h"
 #include "xwin.h"
 #include "drawing.h"
 #ifdef WITH_MIDIEMU

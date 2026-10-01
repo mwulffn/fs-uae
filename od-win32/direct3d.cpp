@@ -2,7 +2,6 @@
 /* Direct3D 9 graphics renderer */
 
 #include <windows.h>
-#include "resource.h"
 
 #include "sysconfig.h"
 #include "sysdeps.h"
@@ -24,7 +23,6 @@
 #include "options.h"
 #include "xwin.h"
 #include "custom.h"
-#include "drawing.h"
 #include "render.h"
 #include "win32.h"
 #include "win32gfx.h"

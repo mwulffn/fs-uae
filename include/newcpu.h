@@ -333,6 +333,7 @@ extern bool m68k_interrupt_delay;
 extern void safe_interrupt_set(int, int, bool);
 
 #define SPCFLAG_CPUINRESET 2
+#define SPCFLAG_CPU_SLOW 4
 #define SPCFLAG_INT 8
 #define SPCFLAG_BRK 16
 #define SPCFLAG_UAEINT 32
@@ -738,6 +739,7 @@ extern int m68k_movec2 (int, uae_u32 *);
 extern int m68k_divl (uae_u32, uae_u32, uae_u16, uaecptr);
 extern int m68k_mull (uae_u32, uae_u32, uae_u16);
 extern void init_m68k (void);
+extern void m68k_run(void);
 extern void m68k_go (int);
 extern void m68k_dumpstate(uaecptr *, uaecptr);
 extern void m68k_dumpcache(bool);

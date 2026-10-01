@@ -73,8 +73,6 @@ COLORREF SetPixel(HDC hdc, int x, int y, COLORREF color);
 #include "sysconfig.h"
 #include "sysdeps.h"
 
-#include <stdlib.h>
-
 #if defined(PICASSO96)
 
 #define MULTIDISPLAY 0
@@ -96,8 +94,6 @@ COLORREF SetPixel(HDC hdc, int x, int y, COLORREF color);
 #include "threaddep/thread.h"
 #include "memory.h"
 #include "custom.h"
-#include "events.h"
-#include "newcpu.h"
 #include "xwin.h"
 #include "savestate.h"
 #include "autoconf.h"
@@ -2370,6 +2366,13 @@ static const struct modeids mi[] =
 	5120,2160, 181,
 	1280, 600, 182,
 	3840,1080, 183,
+	2560,1080, 184,
+	4096,2160, 185,
+	5120,2880, 186,
+	1176, 664, 187,
+	1440,1080, 188,
+	1600,1000, 189,
+	1600,1024, 190,
 	-1,-1,0
 };
 
@@ -6382,6 +6385,7 @@ static void picasso_reset2(int monid)
 		struct amigadisplay *ad = &adisplays[i];
 		ad->picasso_requested_on = false;
 	}
+	gfxboard_reset_init();
 
 	unlockrtg();
 }

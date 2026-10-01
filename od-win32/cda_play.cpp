@@ -14,16 +14,10 @@
 #include "sysdeps.h"
 
 #include "options.h"
-#include "render.h"
 #include "audio.h"
 #include "blkdev.h"
 #include "threaddep/thread.h"
 
-#ifdef FSUAE
-#else
-#include <dsound.h>
-#include <mmreg.h>
-#endif
 #include <sys/timeb.h>
 
 #ifdef FSUAE

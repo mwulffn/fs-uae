@@ -23,7 +23,6 @@
 #include "serial.h"
 #endif
 #include "disk.h"
-#include "xwin.h"
 #include "keybuf.h"
 #include "gui.h"
 #include "savestate.h"
@@ -41,7 +40,6 @@
 #endif
 #include "audio.h"
 #include "keyboard.h"
-#include "uae.h"
 #ifdef AMAX
 #include "amax.h"
 #endif
@@ -143,6 +141,7 @@ struct CIATimer
 	uae_u32 loaddelay;
 	uae_u8 preovfl;
 	uae_u8 cr;
+	uae_u32 timerval_prev;
 };
 
 struct CIA
@@ -413,6 +412,7 @@ static void compute_passed_time(void)
 static void timer_reset(struct CIATimer *t)
 {
 	t->timer = t->latch;
+	t->timerval_prev = 0xffffffff;
 	if (acc_mode()) {
 		if (t->cr & CR_RUNMODE) {
 			t->inputpipe &= ~CIA_PIPE_CLR1;
@@ -542,6 +542,7 @@ static void CIA_update_check(void)
 				if (t->loaddelay & 0x00000001) {
 					t->timer = t->latch;
 					t->inputpipe &= ~CIA_PIPE_CLR1;
+					t->timerval_prev = 0xffffffff;
 				}
 
 				// timer=0 special cases. TODO: better way to do this..
@@ -575,6 +576,7 @@ static void CIA_update_check(void)
 			c->t[0].timer -= cc;
 			c->t[0].timer &= 0xffff;
 			if (c->t[0].timer == 0) {
+				c->t[0].timerval_prev = 0xffffffff;
 				// SP in output mode (data sent can be ignored if CIA-A)
 				if ((c->t[0].cr & (CR_SPMODE | CR_RUNMODE)) == CR_SPMODE && c->sdr_cnt > 0) {
 					c->sdr_cnt--;
@@ -603,11 +605,13 @@ static void CIA_update_check(void)
 		if (cc > 0) {
 			if ((c->t[1].timer == 0 && (c->t[1].cr & (CR_INMODE | CR_INMODE1)))) {
 				ovfl[1] = 2;
+				c->t[1].timerval_prev = 0xffffffff;
 			} else {
 				c->t[1].timer -= cc;
 				c->t[1].timer &= 0xffff;
 				if ((c->t[1].timer == 0 && !(c->t[1].cr & (CR_INMODE | CR_INMODE1)))) {
 					ovfl[1] = 2;
+					c->t[1].timerval_prev = 0xffffffff;
 				}
 			}
 		}
@@ -628,6 +632,7 @@ static void CIA_update_check(void)
 						icr |= 1 << num;
 					}
 					t->timer = t->latch;
+					t->timerval_prev = 0xffffffff;
 				}
 				if (!loaded[tn]) {
 					if (t->cr & CR_RUNMODE) {
@@ -1202,7 +1207,7 @@ static bool keymcu_execute(void)
 {
 	bool handshake = (cia[0].t[0].cr & 0x40) != 0 && (cia[0].sdr_buf & 0x80) == 0;
 
-#if 1
+#if 0
 	extern int blop;
 	if (blop & 1) {
 		handshake = true;
@@ -1506,17 +1511,34 @@ static uae_u8 ReadCIAReg(int num, int reg)
 	case 7:
 	{
 		uae_u16 tval = t->timer - t->passed;
+		bool timer_prev = true;
 		// fast CPU timer hack
-		if ((t->cr & CR_START) && !(t->cr & CR_INMODE1) && !(t->cr & CR_INMODE) && t->latch == t->timer) {
-			if (currprefs.cachesize || currprefs.m68k_speed < 0) {
-				uae_u16 adj = cia_timer_hack_adjust;
-				if (adj >= tval && tval > 1) {
-					adj = tval - 1;
+		if ((t->cr & CR_START) && !(t->cr & CR_INMODE1) && !(t->cr & CR_INMODE)) {
+			if (t->latch == t->timer) {
+				if (currprefs.cachesize || currprefs.m68k_speed < 0) {
+					uae_u16 adj = cia_timer_hack_adjust;
+					if (adj >= tval && (tval > 1 || !(t->cr & CR_RUNMODE))) {
+						adj = tval - 1;
+					}
+					tval -= adj;
 				}
-				tval -= adj;
+			}
+			if ((slow_cpu_access & 1) && (reg == 4 || reg == 6) && tval == t->timerval_prev) {
+				if (currprefs.cachesize || currprefs.m68k_speed < 0) {
+					uae_u16 adj = cia_timer_hack_adjust;
+					if (adj > 0 && ((tval > 1) || !(t->cr & CR_RUNMODE))) {
+						tval -= adj;
+					}
+					set_special(SPCFLAG_CPU_SLOW);
+					timer_prev = false;
+					t->timerval_prev = 0xffffffff;
+				}
 			}
 		}
 		if (reg == 4 || reg == 6) {
+			if (timer_prev) {
+				t->timerval_prev = tval;
+			}
 			return tval & 0xff;
 		}
 		return tval >> 8;
@@ -1613,6 +1635,7 @@ static void CIA_thi_write(int num, int tnum, uae_u8 val)
 
 		if (!(t->cr & CR_START) || (t->cr & CR_RUNMODE)) {
 			t->timer = t->latch;
+			t->timerval_prev = 0xffffffff;
 		}
 
 		if (t->cr & CR_RUNMODE) {
@@ -1677,9 +1700,11 @@ static void CIA_cr_write(int num, int tnum, uae_u8 val)
 		if (val & CR_LOAD) {
 			val &= ~CR_LOAD;
 			t->timer = t->latch;
+			t->timerval_prev = 0xffffffff;
 		}
 
 		if (val & CR_START) {
+			t->timerval_prev = 0xffffffff;
 			if (!CIA_timer_inmode(tnum, val)) {
 				t->inputpipe = CIA_PIPE_ALL_MASK;
 				if (t->timer <= 1) {
@@ -1711,7 +1736,7 @@ static void CIA_cr_write(int num, int tnum, uae_u8 val)
 	}
 
 	// clear serial port state when switching TX<>RX
-	if (num == 0 && (t->cr & 0x40) != (val & 0x040)) {
+	if (tnum == 0 && (t->cr & 0x40) != (val & 0x040)) {
 		c->sdr_cnt = 0;
 		c->sdr_load = 0;
 		c->sdr_buf = 0;
@@ -1740,10 +1765,12 @@ static void WriteCIAReg(int num, int reg, uae_u8 val)
 	switch (reg) {
 	case 4:
 	case 6:
+		t->timerval_prev = 0xffffffff;
 		t->latch = (t->latch & 0xff00) | val;
 		break;
 	case 5:
 	case 7:
+		t->timerval_prev = 0xffffffff;
 		CIA_thi_write(num, tnum, val);
 		break;
 	case 8:

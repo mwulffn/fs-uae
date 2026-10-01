@@ -486,6 +486,7 @@
 #define IDC_MEMORYMEM                   1028
 #define IDC_PORT0_JOYSMODE              1029
 #define IDC_SCREENMODE_NATIVE2          1029
+#define IDC_CPUSLOTMEM                  1029
 #define IDC_SLOWMEM                     1030
 #define IDC_PORT1_JOYSMODE              1030
 #define IDC_SCREENMODE_RTG2             1030
@@ -507,6 +508,7 @@
 #define IDC_CHIPRAM                     1045
 #define IDC_SLOWRAM                     1046
 #define IDC_Z3TEXT                      1047
+#define IDC_CPUSLOTRAM                  1047
 #define IDC_Z3FASTRAM                   1048
 #define IDC_Z3FASTMEM                   1049
 #define IDC_MEMORYRAM                   1050
@@ -564,6 +566,7 @@
 #define IDC_LM_IDOUBLED3                1200
 #define IDC_CPU0                        1200
 #define IDC_CPU1                        1201
+#define IDC_SCALENTSC                   1201
 #define IDC_CPU2                        1202
 #define IDC_CPU3                        1203
 #define IDC_CPU4                        1204
@@ -1132,6 +1135,7 @@
 #define IDC_MONITOREMU_MON              1716
 #define IDC_CS_CD32CD                   1717
 #define IDC_KEYBOARDMODE                1717
+#define IDC_MONITOREMU_ACTIVEMON        1717
 #define IDC_CS_CD32C2P                  1718
 #define IDC_SOUND_PORTAUDIO             1718
 #define IDC_DISPLAY_OPTIMIZATION        1718
@@ -1275,11 +1279,13 @@
 #define IDC_INPUTMAPOUTM                1802
 #define IDC_RTG_SWITCHER                1802
 #define IDC_INFOBOX_TEXT1               1803
+#define IDC_RTG_INITIAL_MONITOR         1803
 #define IDC_INFOBOX_TEXT3               1804
 #define IDC_CD_EJECT                    1804
 #define IDC_CD_TEXT                     1805
 #define IDC_CD_TYPE                     1806
 #define IDC_CD_SELECT                   1807
+#define IDC_CD_NUMBER                   1808
 #define IDC_RTG_DISPLAYSELECT           1809
 #define IDC_FASTMEMAUTOCONFIGUSE        1809
 #define IDC_MISCLIST                    1810

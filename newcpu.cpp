@@ -26,7 +26,6 @@
 #include "memory.h"
 #include "custom.h"
 #include "newcpu.h"
-#include "disasm.h"
 #include "cpummu.h"
 #include "cpummu030.h"
 #include "cputbl.h"
@@ -39,8 +38,6 @@
 #include "savestate.h"
 #include "blitter.h"
 #include "ar.h"
-#include "gayle.h"
-#include "cia.h"
 #include "inputrecord.h"
 #include "inputdevice.h"
 #include "audio.h"
@@ -54,7 +51,6 @@
 #ifdef WITH_X86
 #include "x86.h"
 #endif
-#include "bsdsocket.h"
 #include "devices.h"
 #ifdef WITH_LUA
 #include "luascript.h"
@@ -101,6 +97,7 @@ int hardware_bus_error;
 static int baseclock;
 int m68k_pc_indirect;
 bool m68k_interrupt_delay;
+int slow_cpu_access;
 static bool m68k_accurate_ipl;
 static bool m68k_reset_delay;
 static bool ismoves_nommu;
@@ -2368,9 +2365,14 @@ void m68k_cancel_idle(void)
 
 static void m68k_set_stop(int stoptype)
 {
-	if (regs.stopped)
+	if (regs.stopped) {
 		return;
+	}
 	regs.stopped = stoptype;
+	if (regs.intmask == 7) {
+		gui_data.cpu_stopped = 1;
+		gui_led(LED_CPU, 0, -1);
+	}
 	if (cpu_last_stop_vpos >= 0) {
 		cpu_last_stop_vpos = vpos;
 	}
@@ -2379,6 +2381,10 @@ static void m68k_set_stop(int stoptype)
 static void m68k_unset_stop(void)
 {
 	regs.stopped = 0;
+	if (gui_data.cpu_stopped) {
+		gui_data.cpu_stopped = 0;
+		gui_led(LED_CPU, 0, -1);
+	}
 	if (cpu_last_stop_vpos >= 0) {
 		cpu_stopped_lines += vpos - cpu_last_stop_vpos;
 		cpu_last_stop_vpos = vpos;
@@ -3550,8 +3556,9 @@ void NMI (void)
 static void cpu_halt_clear(void)
 {
 	regs.halted = 0;
-	if (gui_data.cpu_halted) {
+	if (gui_data.cpu_halted || gui_data.cpu_stopped) {
 		gui_data.cpu_halted = 0;
+		gui_data.cpu_stopped = 0;
 		gui_led(LED_CPU, 0, -1);
 	}
 }
@@ -4780,6 +4787,16 @@ static int do_specialties (int cycles)
 #endif
 	}
 
+	if (spcflags & SPCFLAG_CPU_SLOW) {
+		evt_t c = get_cck_cycles();
+		int cnt = 0;
+		while(regs.spcflags == SPCFLAG_CPU_SLOW && c == get_cck_cycles()) {
+			x_do_cycles(4 * CYCLE_UNIT);
+			cnt++;
+		}
+		unset_special(SPCFLAG_CPU_SLOW);
+	}
+
 	if (spcflags & SPCFLAG_MMURESTART) {
 		// can't have interrupt when 040/060 CPU reruns faulted instruction
 		unset_special(SPCFLAG_MMURESTART);
@@ -5642,6 +5659,9 @@ static void m68k_run_jit(void)
 			// Without this it would have crashed in any case..
 			uaecptr pc = M68K_GETPC;
 			write_log(_T("Unhandled JIT exception! PC=%08x\n"), pc);
+#ifdef DEBUGGER
+			memory_map_dump();
+#endif
 			if (pc & 1)
 				Exception(3);
 			else
@@ -6550,6 +6570,31 @@ static void warpmode_reset(void)
 	}
 }
 
+void m68k_run(void)
+{
+	void (*run_func)(void);
+
+	run_func = currprefs.cpu_cycle_exact && currprefs.cpu_model <= 68010 ? m68k_run_1_ce :
+		currprefs.cpu_compatible && currprefs.cpu_model <= 68010 ? m68k_run_1 :
+#ifdef JIT
+		currprefs.cpu_model >= 68020 && currprefs.cachesize ? m68k_run_jit :
+#endif
+		currprefs.cpu_model == 68030 && currprefs.mmu_model ? m68k_run_mmu030 :
+		currprefs.cpu_model == 68040 && currprefs.mmu_model ? m68k_run_mmu040 :
+		currprefs.cpu_model == 68060 && currprefs.mmu_model ? m68k_run_mmu060 :
+
+		currprefs.cpu_model >= 68040 && currprefs.cpu_cycle_exact ? m68k_run_3ce :
+		currprefs.cpu_model >= 68020 && currprefs.cpu_cycle_exact ? m68k_run_2ce :
+
+		currprefs.cpu_model <= 68020 && currprefs.cpu_compatible ? m68k_run_2p :
+		currprefs.cpu_model == 68030 && currprefs.cpu_compatible ? m68k_run_2p :
+		currprefs.cpu_model >= 68040 && currprefs.cpu_compatible ? m68k_run_3p :
+
+		currprefs.cpu_model < 68020 ? m68k_run_2_000 : m68k_run_2_020;
+
+	run_func();
+}
+
 void m68k_go (int may_quit)
 {
 	int hardboot = 1;
@@ -6572,7 +6617,6 @@ void m68k_go (int may_quit)
 	in_m68k_go++;
 	for (;;) {
 		int restored = 0;
-		void (*run_func)(void);
 
 		cputrace.state = -1;
 
@@ -6753,32 +6797,7 @@ void m68k_go (int may_quit)
 			}
 		}
 
-#if 0
-		if (mmu_enabled && !currprefs.cachesize) {
-			run_func = m68k_run_mmu;
-		} else {
-#endif
-			run_func = currprefs.cpu_cycle_exact && currprefs.cpu_model <= 68010 ? m68k_run_1_ce :
-				currprefs.cpu_compatible && currprefs.cpu_model <= 68010 ? m68k_run_1 :
-#ifdef JIT
-				currprefs.cpu_model >= 68020 && currprefs.cachesize ? m68k_run_jit :
-#endif
-				currprefs.cpu_model == 68030 && currprefs.mmu_model ? m68k_run_mmu030 :
-				currprefs.cpu_model == 68040 && currprefs.mmu_model ? m68k_run_mmu040 :
-				currprefs.cpu_model == 68060 && currprefs.mmu_model ? m68k_run_mmu060 :
-
-				currprefs.cpu_model >= 68040 && currprefs.cpu_cycle_exact ? m68k_run_3ce :
-				currprefs.cpu_model >= 68020 && currprefs.cpu_cycle_exact ? m68k_run_2ce :
-
-				currprefs.cpu_model <= 68020 && currprefs.cpu_compatible ? m68k_run_2p :
-				currprefs.cpu_model == 68030 && currprefs.cpu_compatible ? m68k_run_2p :
-				currprefs.cpu_model >= 68040 && currprefs.cpu_compatible ? m68k_run_3p :
-
-				currprefs.cpu_model < 68020 ? m68k_run_2_000 : m68k_run_2_020;
-#if 0
-		}
-#endif
-		run_func();
+		m68k_run();
 
 		custom_end_drawing();
 

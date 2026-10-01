@@ -29,7 +29,7 @@
 #define WINUAEBETA _T("")
 #endif
 
-#define WINUAEDATE MAKEBD(2025, 8, 10)
+#define WINUAEDATE MAKEBD(2026, 3, 1)
 
 //#define WINUAEEXTRA _T("AmiKit Preview")
 //#define WINUAEEXTRA _T("Amiga Forever Edition")
@@ -85,6 +85,7 @@ extern bool setpaused (int priority);
 extern void unsetminimized (int monid);
 extern void setminimized(int monid);
 extern int getfocusedmonitor(void);
+BOOL xSetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags);
 
 void finishjob(void);
 void init_colors(int monid);

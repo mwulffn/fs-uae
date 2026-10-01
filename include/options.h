@@ -17,7 +17,7 @@
 
 #define UAEMAJOR 6
 #define UAEMINOR 0
-#define UAESUBREV 1
+#define UAESUBREV 3
 
 #define MAX_AMIGADISPLAYS 4
 
@@ -277,6 +277,10 @@ enum { CP_GENERIC = 1, CP_CDTV, CP_CDTVCR, CP_CD32, CP_A500, CP_A500P, CP_A600,
 #define AUTOSCALE_SEPARATOR 10
 #define AUTOSCALE_OVERSCAN_BLANK 11
 
+#define MANUAL_SCALE_MIN_RANGE -1999
+#define MANUAL_SCALE_MAX_RANGE 1999
+#define MANUAL_FILTER_MAX_RANGE 9999
+
 #define MONITOREMU_NONE 0
 #define MONITOREMU_AUTO 1
 #define MONITOREMU_A2024 2
@@ -442,6 +446,7 @@ struct rtgboardconfig
 	int device_order;
 	int monitor_id;
 	bool autoswitch;
+	bool initial_active;
 };
 struct boardloadfile
 {
@@ -619,14 +624,14 @@ struct uae_prefs {
 	int lightboost_strobo_ratio;
 	bool gfx_grayscale;
 	bool lightpen_crosshair;
-	int lightpen_offset[2];
+	int lightpen_offset[2][2];
 	int gfx_display_sections;
 	int gfx_variable_sync;
 	bool gfx_windowed_resize;
 	int gfx_overscanmode;
 	int gfx_monitorblankdelay;
 	int gfx_rotation;
-	int gfx_ntscpixels;
+	bool gfx_ntscpixels;
 	uae_u32 gfx_bordercolor;
 
 	struct gfx_filterdata gf[3];

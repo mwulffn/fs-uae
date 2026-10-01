@@ -4,8 +4,6 @@
 
 #include <windows.h>
 
-#include <stdio.h>
-
 #include "sysconfig.h"
 #include "sysdeps.h"
 #include "options.h"
@@ -31,11 +29,10 @@ int screenshot_clipmode = 0;
 int screenshot_multi = 0;
 
 extern bool need_genlock_data;
-extern uae_u8 **row_map_genlock;
 
 static bool usealpha(void)
 {
-	return need_genlock_data != 0 && row_map_genlock && currprefs.genlock_image && currprefs.genlock_alpha;
+	return need_genlock_data != 0 && get_row_genlock(0, 0) && currprefs.genlock_image && currprefs.genlock_alpha;
 }
 
 static void namesplit (TCHAR *s)
@@ -1238,8 +1235,10 @@ oops:
 
 	recursive--;
 
-	if (failed)
+	if (failed) {
 		screenshot_multi = 0;
+		video_recording_active &= ~2;
+	}
 
 	return failed == 0;
 }
@@ -1254,13 +1253,16 @@ void screenshot(int monid, int mode, int doprepare)
 
 	if (mode == 2) {
 		screenshot_multi = 10;
+		video_recording_active |= 2;
 		screenshot_prepare_multi();
 	} else if (mode == 3) {
 		screenshot_multi = -1;
 		screenshot_prepare_multi();
+		video_recording_active &= ~2;
 	} else if (mode == 4) {
 		screenshot_multi = 0;
 		filenumber = 0;
+		video_recording_active &= ~2;
 	} else {
 		screenshotf(monid, NULL, mode, doprepare, -1, NULL);
 	}

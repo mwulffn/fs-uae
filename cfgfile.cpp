@@ -47,7 +47,6 @@
 #include "luascript.h"
 #endif
 #include "ethernet.h"
-#include "native2amiga_api.h"
 #include "ini.h"
 #ifdef WITH_SPECIALMONITORS
 #include "specialmonitors.h"
@@ -2506,7 +2505,8 @@ void cfgfile_save_options (struct zfile *f, struct uae_prefs *p, int type)
 	cfgfile_dwrite_strarr(f, _T("gfx_overscanmode"), overscanmodes, p->gfx_overscanmode);
 	cfgfile_dwrite(f, _T("gfx_monitorblankdelay"), _T("%d"), p->gfx_monitorblankdelay);
 	cfgfile_dwrite(f, _T("gfx_rotation"), _T("%d"), p->gfx_rotation);
-	cfgfile_dwrite (f, _T("gfx_bordercolor"), _T("0x%08x"), p->gfx_bordercolor);
+	cfgfile_dwrite(f, _T("gfx_bordercolor"), _T("0x%08x"), p->gfx_bordercolor);
+	cfgfile_dwrite_bool(f, _T("gfx_ntscpixels"), p->gfx_ntscpixels);
 
 #ifdef GFXFILTER
 	for (int j = 0; j < MAX_FILTERDATA; j++) {
@@ -2589,8 +2589,8 @@ void cfgfile_save_options (struct zfile *f, struct uae_prefs *p, int type)
 	cfgfile_dwrite (f, _T("gfx_gamma_g"), _T("%d"), p->gfx_gamma_ch[1]);
 	cfgfile_dwrite (f, _T("gfx_gamma_b"), _T("%d"), p->gfx_gamma_ch[2]);
 
-	cfgfile_dwrite (f, _T("gfx_center_horizontal_position"), _T("%d"), p->gfx_xcenter_pos);
-	cfgfile_dwrite (f, _T("gfx_center_vertical_position"), _T("%d"), p->gfx_ycenter_pos);
+	cfgfile_dwrite (f, _T("gfx_center_horizontal_position"), _T("%d"), p->gfx_xcenter_pos < MANUAL_SCALE_MIN_RANGE ? -1 : (p->gfx_xcenter_pos < 0 ? p->gfx_xcenter_pos - 1 : p->gfx_xcenter_pos));
+	cfgfile_dwrite (f, _T("gfx_center_vertical_position"), _T("%d"), p->gfx_ycenter_pos < MANUAL_SCALE_MIN_RANGE ? -1 : (p->gfx_ycenter_pos < 0 ? p->gfx_ycenter_pos - 1 : p->gfx_ycenter_pos));
 	cfgfile_dwrite (f, _T("gfx_center_horizontal_size"), _T("%d"), p->gfx_xcenter_size);
 	cfgfile_dwrite (f, _T("gfx_center_vertical_size"), _T("%d"), p->gfx_ycenter_size);
 
@@ -2649,7 +2649,8 @@ void cfgfile_save_options (struct zfile *f, struct uae_prefs *p, int type)
 	cfgfile_dwrite_strarr(f, _T("monitoremu"), specialmonitorconfignames, p->monitoremu);
 #endif
 	cfgfile_dwrite(f, _T("monitoremu_monitor"), _T("%d"), p->monitoremu_mon);
-	cfgfile_dwrite_coords(f, _T("lightpen_offset"), p->lightpen_offset[0], p->lightpen_offset[1]);
+	cfgfile_dwrite_coords(f, _T("lightpen_offset"), p->lightpen_offset[0][0], p->lightpen_offset[0][1]);
+	cfgfile_dwrite_coords(f, _T("lightpen_offset_gfx"), p->lightpen_offset[1][0], p->lightpen_offset[1][1]);
 	cfgfile_dwrite_bool(f, _T("lightpen_crosshair"), p->lightpen_crosshair);
 
 	cfgfile_dwrite_bool (f, _T("show_leds"), !!(p->leds_on_screen & STATUSLINE_CHIPSET));
@@ -2930,6 +2931,11 @@ void cfgfile_save_options (struct zfile *f, struct uae_prefs *p, int type)
 				if (tmp2)
 					_tcscat(tmp2, _T(","));
 				_tcscat(tmp2 + _tcslen(tmp2), _T("noautoswitch"));
+			}
+			if (rbc->initial_active) {
+				if (tmp2)
+					_tcscat(tmp2, _T(","));
+				_tcscat(tmp2 + _tcslen(tmp2), _T("initial"));
 			}
 			if (tmp2[0]) {
 				if (i > 0)
@@ -3717,8 +3723,6 @@ static int cfgfile_parse_host (struct uae_prefs *p, TCHAR *option, TCHAR *value)
 		|| cfgfile_yesno(option, value, _T("gfx_resize_windowed"), &p->gfx_windowed_resize)
 		|| cfgfile_intval(option, value, _T("gfx_black_frame_insertion_ratio"), &p->lightboost_strobo_ratio, 1)
 
-		|| cfgfile_intval (option, value, _T("gfx_center_horizontal_position"), &p->gfx_xcenter_pos, 1)
-		|| cfgfile_intval (option, value, _T("gfx_center_vertical_position"), &p->gfx_ycenter_pos, 1)
 		|| cfgfile_intval (option, value, _T("gfx_center_horizontal_size"), &p->gfx_xcenter_size, 1)
 		|| cfgfile_intval (option, value, _T("gfx_center_vertical_size"), &p->gfx_ycenter_size, 1)
 
@@ -3742,6 +3746,7 @@ static int cfgfile_parse_host (struct uae_prefs *p, TCHAR *option, TCHAR *value)
 		|| cfgfile_intval(option, value, _T("gfx_vertical_extra"), &p->gfx_extraheight, 1)
 		|| cfgfile_intval(option, value, _T("gfx_monitorblankdelay"), &p->gfx_monitorblankdelay, 1)
 		|| cfgfile_intval(option, value, _T("gfx_bordercolor"), &p->gfx_bordercolor, 1)
+		|| cfgfile_yesno(option, value, _T("gfx_ntscpixels"), &p->gfx_ntscpixels)
 
 		|| cfgfile_intval (option, value, _T("floppy0sound"), &p->floppyslots[0].dfxclick, 1)
 		|| cfgfile_intval (option, value, _T("floppy1sound"), &p->floppyslots[1].dfxclick, 1)
@@ -3825,6 +3830,25 @@ static int cfgfile_parse_host (struct uae_prefs *p, TCHAR *option, TCHAR *value)
 		|| cfgfile_strval(option, value, _T("magic_mousecursor"), &p->input_magic_mouse_cursor, magiccursors, 0)
 		|| cfgfile_strval (option, value, _T("absolute_mouse"), &p->input_tablet, abspointers, 0))
 		return 1;
+
+	if (cfgfile_intval(option, value, _T("gfx_center_horizontal_position"), &p->gfx_xcenter_pos, 1)) {
+		// -1 = old "null" position.
+		if (p->gfx_xcenter_pos == -1) {
+			p->gfx_xcenter_pos = MANUAL_SCALE_MIN_RANGE - 1;
+		} else if (p->gfx_xcenter_pos < 0 && p->gfx_xcenter_pos >= MANUAL_SCALE_MIN_RANGE) {
+			p->gfx_xcenter_pos++;
+		}
+		return 1;
+	}
+	if (cfgfile_intval(option, value, _T("gfx_center_vertical_position"), &p->gfx_ycenter_pos, 1)) {
+		if (p->gfx_ycenter_pos == -1) {
+			p->gfx_ycenter_pos = MANUAL_SCALE_MIN_RANGE - 1;
+		} else if (p->gfx_ycenter_pos < 0 && p->gfx_ycenter_pos >= MANUAL_SCALE_MIN_RANGE) {
+			p->gfx_ycenter_pos++;
+		}
+		return 1;
+	}
+
 
 	if (cfgfile_string(option, value, _T("gfx_colour_mode"), tmpbuf, sizeof tmpbuf / sizeof(TCHAR))) {
 		return 1;
@@ -4884,8 +4908,10 @@ struct uaedev_config_data *add_filesys_config (struct uae_prefs *p, int index, s
 		}
 		if (ci->type == UAEDEV_CD) {
 			for (i = 0; i < p->mountitems; i++) {
-				if (p->mountconfig[i].ci.type == ci->type)
+				// duplicate check
+				if (p->mountconfig[i].ci.type == ci->type && p->mountconfig[i].ci.device_emu_unit == ci->device_emu_unit) {
 					return NULL;
+				}
 			}
 		}
 		uci = getuci (p);
@@ -6002,7 +6028,8 @@ static int cfgfile_parse_hardware (struct uae_prefs *p, const TCHAR *option, TCH
 		|| cfgfile_yesno(option, value, _T("gfxcard_dacswitch"), &p->rtg_dacswitch)
 		|| cfgfile_yesno(option, value, _T("gfxcard_multithread"), &p->rtg_multithread)
 		|| cfgfile_yesno(option, value, _T("synchronize_clock"), &p->tod_hack)
-		|| cfgfile_coords(option, value, _T("lightpen_offset"), &p->lightpen_offset[0], &p->lightpen_offset[1])
+		|| cfgfile_coords(option, value, _T("lightpen_offset"), &p->lightpen_offset[0][0], &p->lightpen_offset[0][1])
+		|| cfgfile_coords(option, value, _T("lightpen_offset_gfx"), &p->lightpen_offset[1][0], &p->lightpen_offset[1][1])
 		|| cfgfile_yesno(option, value, _T("lightpen_crosshair"), &p->lightpen_crosshair)
 
 		|| cfgfile_yesno(option, value, _T("kickshifter"), &p->kickshifter)
@@ -6321,15 +6348,17 @@ static int cfgfile_parse_hardware (struct uae_prefs *p, const TCHAR *option, TCH
 				xfree(s);
 			}
 			rbc->autoswitch = !cfgfile_option_find(value, _T("noautoswitch"));
+			rbc->initial_active = cfgfile_option_find(value, _T("initial"));
 			if (cfgfile_option_find(value, _T("autoswitch"))) {
 				rbc->autoswitch = true;
 			}
 			return 1;
 		}
-		if (i > 0)
+		if (i > 0) {
 			_stprintf(tmp, _T("gfxcard%d_type"), i + 1);
-		else
+		} else {
 			_tcscpy(tmp, _T("gfxcard_type"));
+		}
 		if (cfgfile_string(option, value, tmp, tmpbuf, sizeof tmpbuf / sizeof(TCHAR))) {
 			rbc->rtgmem_type = 0;
 			rbc->rtg_index = i;
@@ -8583,8 +8612,8 @@ void default_prefs (struct uae_prefs *p, bool reset, int type)
 	p->gfx_apmode[0].gfx_fullscreen = GFX_WINDOW;
 	p->gfx_apmode[1].gfx_fullscreen = GFX_WINDOW;
 	p->gfx_xcenter = 0; p->gfx_ycenter = 0;
-	p->gfx_xcenter_pos = -1;
-	p->gfx_ycenter_pos = -1;
+	p->gfx_xcenter_pos = MANUAL_SCALE_MIN_RANGE - 1;
+	p->gfx_ycenter_pos = MANUAL_SCALE_MIN_RANGE - 1;
 	p->gfx_xcenter_size = -1;
 	p->gfx_ycenter_size = -1;
 	p->gfx_max_horizontal = RES_HIRES;
@@ -8681,6 +8710,7 @@ void default_prefs (struct uae_prefs *p, bool reset, int type)
 		f->enable = true;
 	}
 	p->gf[2].enable = false;
+	p->gfx_ntscpixels = 1;
 
 	p->rtg_horiz_zoom_mult = 1.0;
 	p->rtg_vert_zoom_mult = 1.0;
@@ -8752,6 +8782,7 @@ void default_prefs (struct uae_prefs *p, bool reset, int type)
 	p->bogomem.chipramtiming = true;
 	for (int i = 0; i < MAX_RTG_BOARDS; i++) {
 		p->rtgboards[i].rtg_index = i;
+		p->rtgboards[i].autoswitch = true;
 	}
 	p->rtgboards[0].rtgmem_size = 0x00000000;
 	p->rtgboards[0].rtgmem_type = GFXBOARD_UAE_Z3;

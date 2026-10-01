@@ -19,7 +19,6 @@
 #include "memory.h"
 #include "custom.h"
 #include "newcpu.h"
-#include "cpu_prefetch.h"
 #include "debug.h"
 #ifdef WITH_LUA
 #include "luascript.h"
@@ -29,7 +28,6 @@
 #include "cia.h"
 #include "xwin.h"
 #include "identify.h"
-#include "audio.h"
 #include "sounddep/sound.h"
 #include "disk.h"
 #include "savestate.h"
@@ -57,7 +55,6 @@
 #include "blitter.h"
 #include "ini.h"
 #include "readcpu.h"
-#include "cputbl.h"
 #include "keybuf.h"
 
 #ifdef FSUAE
@@ -129,8 +126,10 @@ void deactivate_debugger (void)
 void activate_debugger (void)
 {
 	disasm_init();
-	if (isfullscreen() > 0)
+
+	if (!is_interactive_console() || isfullscreen() > 0) {
 		return;
+	}
 
 	debugger_load_libraries();
 	open_console();
@@ -225,6 +224,9 @@ static const TCHAR help[] = {
 	_T("  ob <addr>             Copper breakpoint.\n")
 	_T("  H[H] <cnt>            Show PC history (HH=full CPU info) <cnt> instructions.\n")
 	_T("  C <value>             Search for values like energy or lifes in games.\n")
+	_T("  mmu <fc>              Set current MMU translation function code for all debugging instructions.\n")
+	_T("  mmud                  Dump MMU tables.\n")
+	_T("  U <address>           Translate logical address to physical using current MMU tables.\n")
 	_T("  Cl                    List currently found trainer addresses.\n")
 	_T("  D[idxzs <[max diff]>] Deep trainer. i=new value must be larger, d=smaller,\n")
 	_T("                        x = must be same, z = must be different, s = restart.\n")
@@ -1063,19 +1065,24 @@ static size_t next_string (TCHAR **c, TCHAR *out, int max, int forceupper)
 	}
 	*p = 0;
 	while (**c != 0) {
-		if (**c == '\"' && startmarker)
+		if (**c == '\"' && startmarker) {
+			(*c)++;
+			ignore_ws(c);
 			break;
+		}
 		if (**c == 32 && !startmarker) {
 			ignore_ws (c);
 			break;
 		}
 		*p = next_char2(c);
-		if (forceupper)
+		if (forceupper) {
 			*p = _totupper(*p);
+		}
 		*++p = 0;
 		max--;
-		if (max <= 1)
+		if (max <= 1) {
 			break;
+		}
 	}
 	return _tcslen (out);
 }
@@ -1403,11 +1410,13 @@ static int nr_cop_records[2], curr_cop_set, selected_cop_set;
 static struct dma_rec *dma_record_data;
 static int dma_record_cycle;
 static int dma_record_vpos_type;
-static struct dma_rec **dma_record_lines;
+static struct dma_rec **dma_record_lines1, **dma_record_lines2;
 struct dma_rec *last_dma_rec;
 
 struct dma_rec *record_dma_next_cycle(int hpos, int vpos, int vvpos)
 {
+	static int xvpos_last = -1;
+
 	if (!dma_record_data) {
 		return NULL;
 	}
@@ -1419,12 +1428,36 @@ struct dma_rec *record_dma_next_cycle(int hpos, int vpos, int vvpos)
 	dr->vpos[1] = vvpos;
 	dr->frame = vsync_counter;
 	dr->tick = currcycle_cck;
+	if (dma_record_vpos_type) {
+		if (hpos == 0 && vvpos < NR_DMA_REC_LINES_MAX - 1) {
+			dma_record_lines1[vvpos + 1] = dr;
+			xvpos_last = vvpos;
+		}
+		if (vvpos < xvpos_last) {
+			dma_record_lines1[0] = dma_record_lines1[xvpos_last + 1];
+			dma_record_lines1[xvpos_last + 1] = NULL;
+			xvpos_last = vvpos;
+			struct dma_rec **tmp = dma_record_lines1;
+			dma_record_lines1 = dma_record_lines2;
+			dma_record_lines2 = tmp;
+		}
+	} else {
+		if (hpos == 0 && vpos < NR_DMA_REC_LINES_MAX - 1) {
+			dma_record_lines1[vpos + 1] = dr;
+			xvpos_last = vpos;
+		}
+		if (vpos < xvpos_last) {
+			dma_record_lines1[0] = dma_record_lines1[xvpos_last + 1];
+			dma_record_lines1[xvpos_last + 1] = NULL;
+			xvpos_last = vpos;
+			struct dma_rec **tmp = dma_record_lines1;
+			dma_record_lines1 = dma_record_lines2;
+			dma_record_lines2 = tmp;
+		}
+	}
 	dma_record_cycle++;
 	if (dma_record_cycle >= NR_DMA_REC_MAX) {
 		dma_record_cycle = 0;
-	}
-	if (hpos == 0 && vvpos < NR_DMA_REC_LINES_MAX) {
-		dma_record_lines[vvpos] = dr;
 	}
 	dr = &dma_record_data[dma_record_cycle];
 	memset(dr, 0, sizeof(struct dma_rec));
@@ -1441,7 +1474,8 @@ static void dma_record_init(void)
 {
 	if (!dma_record_data) {
 		dma_record_data = xcalloc(struct dma_rec, NR_DMA_REC_MAX + 2);
-		dma_record_lines = xcalloc(struct dma_rec*, NR_DMA_REC_LINES_MAX);
+		dma_record_lines1 = xcalloc(struct dma_rec*, NR_DMA_REC_LINES_MAX);
+		dma_record_lines2 = xcalloc(struct dma_rec*, NR_DMA_REC_LINES_MAX);
 		for (int i = 0;i < NR_DMA_REC_MAX; i++) {
 			struct dma_rec *dr = &dma_record_data[i];
 			dr->reg = 0xffff;
@@ -1523,11 +1557,11 @@ static void set_debug_colors(void)
 	set_dbg_color(0,						0, 0x22, 0x22, 0x22, 1, _T("-"));
 	set_dbg_color(DMARECORD_REFRESH,		0, 0x44, 0x44, 0x44, 4, _T("Refresh"));
 	set_dbg_color(DMARECORD_CPU,			0, 0xa2, 0x53, 0x42, 2, _T("CPU")); // code
-	set_dbg_color(DMARECORD_COPPER,		0, 0xee, 0xee, 0x00, 3, _T("Copper"));
+	set_dbg_color(DMARECORD_COPPER,			0, 0xee, 0xee, 0x00, 3, _T("Copper"));
 	set_dbg_color(DMARECORD_AUDIO,			0, 0xff, 0x00, 0x00, 4, _T("Audio"));
 	set_dbg_color(DMARECORD_BLITTER,		0, 0x00, 0x88, 0x88, 2, _T("Blitter")); // blit A
 	set_dbg_color(DMARECORD_BITPLANE,		0, 0x00, 0x00, 0xff, 8, _T("Bitplane"));
-	set_dbg_color(DMARECORD_SPRITE,		0, 0xff, 0x00, 0xff, 8, _T("Sprite"));
+	set_dbg_color(DMARECORD_SPRITE,			0, 0xff, 0x00, 0xff, 8, _T("Sprite"));
 	set_dbg_color(DMARECORD_DISK,			0, 0xff, 0xff, 0xff, 3, _T("Disk"));
 	set_dbg_color(DMARECORD_CONFLICT,		0, 0xff, 0xb8, 0x40, 0, _T("Conflict"));
 
@@ -1538,8 +1572,8 @@ static void set_debug_colors(void)
 	}
 
 	set_dbg_color(DMARECORD_CPU,		1, 0xad, 0x98, 0xd6, 0, NULL); // data
-	set_dbg_color(DMARECORD_COPPER,	1, 0xaa, 0xaa, 0x22, 0, NULL); // wait
-	set_dbg_color(DMARECORD_COPPER,	2, 0x66, 0x66, 0x44, 0, NULL); // special
+	set_dbg_color(DMARECORD_COPPER,		1, 0xaa, 0xaa, 0x22, 0, NULL); // wait
+	set_dbg_color(DMARECORD_COPPER,		2, 0x66, 0x66, 0x44, 0, NULL); // special
 	set_dbg_color(DMARECORD_BLITTER,	1, 0x00, 0x88, 0x88, 0, NULL); // blit B
 	set_dbg_color(DMARECORD_BLITTER,	2, 0x00, 0x88, 0x88, 0, NULL); // blit C
 	set_dbg_color(DMARECORD_BLITTER,	3, 0x00, 0xaa, 0x88, 0, NULL); // blit D (write)
@@ -1553,6 +1587,7 @@ static void debug_draw_cycles(uae_u8 *buf, uae_u8 *genlock, int line, int width,
 {
 	int y, x, xx, dx, xplus, yplus;
 	struct dma_rec *dr;
+	static bool endline;
 
 	if (debug_dma >= 4)
 		yplus = 2;
@@ -1569,19 +1604,31 @@ static void debug_draw_cycles(uae_u8 *buf, uae_u8 *genlock, int line, int width,
 	if (yplus < 2)
 		y -= 8;
 
-	if (y < 0)
+	if (y == 0) {
+		endline = false;
+	}
+	if (y < 0) {
 		return;
-	if (y >= NR_DMA_REC_LINES_MAX)
+	}
+	if (y >= NR_DMA_REC_LINES_MAX) {
 		return;
-	if (y >= height)
+	}
+	if (y >= height) {
 		return;
+	}
+	if (endline) {
+		return;
+	}
 
-	dr = dma_record_lines[y];
-	if (!dr)
+	dr = dma_record_lines2[y];
+	if (!dr) {
+		endline = true;
 		return;
+	}
 	dx = width - xplus * ((maxhpos + 1) & ~1) - 16;
 
 	bool ended = false;
+	uae_u32 tick = dr->tick;
 	uae_s8 intlev = 0;
 	for (x = 0; x < NR_DMA_REC_COLS_MAX; x++) {
 		uae_u32 c = debug_colors[0].l[0];
@@ -1590,7 +1637,7 @@ static void debug_draw_cycles(uae_u8 *buf, uae_u8 *genlock, int line, int width,
 		if (dr->end) {
 			ended = true;
 		}
-		if (ended) {
+		if (ended || dr->tick != tick) {
 			c = 0;
 		} else {
 			if (dr->reg != 0xffff && debug_colors[dr->type].enabled) {
@@ -1618,6 +1665,10 @@ static void debug_draw_cycles(uae_u8 *buf, uae_u8 *genlock, int line, int width,
 			putpixel(buf, genlock, xx + 4 + 2, c);
 
 		dr++;
+		if (dr - dma_record_data >= NR_DMA_REC_MAX) {
+			dr = dma_record_data;
+		}
+		tick++;
 		if (dr->hpos == 0) {
 			break;
 		}
@@ -2596,9 +2647,9 @@ static bool get_record_dma_info(struct dma_rec *drs, struct dma_rec *dr, TCHAR *
 		if (l3 && !noval) {
 			uae_u64 v = dr->dat;
 			if (longsize == 4) {
-				_stprintf(l3, _T("%08X"), (uae_u32)v);
+				_stprintf(l3, _T("     %08X"), (uae_u32)v);
 			} else if (longsize == 8) {
-				_stprintf(l3, _T("%08X"), (uae_u32)(v >> 32));
+				_stprintf(l3, _T("     %08X"), (uae_u32)(v >> 32));
 				extra64 = true;
 				extraval = (uae_u32)v;
 			} else {
@@ -5110,7 +5161,7 @@ static void writeintomem (TCHAR **c)
 	}
 end:
 	if (eaddr != 0xffffffff)
-		console_out_f(_T("Wrote data to %08x - %08x\n"), addrc, addr);
+		console_out_f(_T("Wrote data to %08x - %08x\n"), addrc, addr - 1);
 }
 
 static uae_u8 *dump_xlate (uae_u32 addr)
@@ -5501,7 +5552,8 @@ static void show_exec_lists (TCHAR *t)
 						console_out_f (_T("   %s:%d %08x\n"), unitname, get_long_debug(fssm), get_long_debug(fssm + 8));
 						uaecptr de = get_long_debug(fssm + 8) << 2;
 						if (de) {
-							console_out_f (_T("    TableSize       %u\n"), get_long_debug(de + 0));
+							int size = get_long_debug(de + 0);
+							console_out_f (_T("    TableSize       %u\n"), size);
 							console_out_f (_T("    SizeBlock       %u\n"), get_long_debug(de + 4));
 							console_out_f (_T("    SecOrg          %u\n"), get_long_debug(de + 8));
 							console_out_f (_T("    Surfaces        %u\n"), get_long_debug(de + 12));
@@ -5518,6 +5570,15 @@ static void show_exec_lists (TCHAR *t)
 							console_out_f (_T("    Mask            0x%08x\n"), get_long_debug(de + 56));
 							console_out_f (_T("    BootPri         %d\n"), get_long_debug(de + 60));
 							console_out_f (_T("    DosType         0x%08x\n"), get_long_debug(de + 64));
+							if (size >= 17) {
+								console_out_f (_T("    Baud            0x%08x\n"), get_long_debug(de + 68));
+								if (size >= 18) {
+									console_out_f (_T("    Control         0x%08x\n"), get_long_debug(de + 72));
+									if (size >= 19) {
+										console_out_f (_T("    BootBlocks      0x%08x\n"), get_long_debug(de + 76));
+									}
+								}
+							}
 						}
 						xfree(unitname);
 					}
@@ -6091,7 +6152,7 @@ static void saveloadmem (TCHAR **cc, bool save)
 		}
 		if (len == 0)
 			console_out_f (_T("Wrote %08X - %08X (%d bytes) to '%s'.\n"),
-				src2, src2 + len2, len2, name);
+				src2, src2 + len2 - 1, len2, name);
 	} else {
 		len2 = 0;
 		while (len != 0) {
@@ -6109,7 +6170,7 @@ static void saveloadmem (TCHAR **cc, bool save)
 		}
 		if (len == 0)
 			console_out_f (_T("Read %08X - %08X (%d bytes) to '%s'.\n"),
-				src2, src2 + len2, len2, name);
+				src2, src2 + len2 - 1, len2, name);
 	}
 	fclose (fp);
 	return;
@@ -6594,6 +6655,133 @@ static void find_ea (TCHAR **inptr)
 				console_out_f (_T("Aborted at %08X\n"), addr);
 				break;
 			}
+		}
+	}
+}
+
+static void debug_do_mmu_translate(uaecptr addrl)
+{
+	struct mmu_debug_data *mdd, *mdd2;
+	uaecptr addrp;
+
+	console_out_f(_T("%08x translates to:\n"), addrl);
+	for (int fc = 0; fc < 7; fc++) {
+		bool super = (fc & 4) != 0;
+		bool data = (fc & 1) != 0;
+		bool ins = (fc & 2) != 0;
+		if (currprefs.mmu_model >= 68040 && fc != 5 && fc != 6 && fc != 1 && fc != 2) {
+			continue;
+		}
+		console_out_f(_T("FC%d %s: "), fc, fc == 6 ? _T("SC") : (fc == 5 ? _T("SD") : (fc == 2 ? _T("UC") : (fc == 1 ? _T("UD") : _T("--")))));
+		TRY(prb) {
+			if (currprefs.mmu_model >= 68040) {
+				addrp = debug_mmu_translate(addrl, 0, super, data, false, sz_long, &mdd);
+			} else {
+				addrp = debug_mmu030_translate(addrl, fc, false, &mdd);
+			}
+			console_out_f(_T("PHYS: %08x"), addrp);
+			TRY(prb2) {
+				if (currprefs.mmu_model >= 68040) {
+					addrp = debug_mmu_translate(addrl, 0, super, data, true, sz_long, &mdd2);
+				} else {
+					addrp = debug_mmu030_translate(addrl, fc, true, &mdd2);
+				}
+				console_out_f(_T(" RW"));
+			} CATCH(prb2) {
+				console_out_f(_T(" RO"));
+			} ENDTRY;
+		} CATCH(prb) {
+			console_out_f(_T("PHYS: ********"));
+		} ENDTRY;
+		if (mdd->tt) {
+			console_out_f(_T(" TT%d: %08x"), mdd->tt - 1, mdd->ttdata);
+		} else if (mdd->descriptor[0] != 0xffffffff) {
+			console_out_f(_T("\n"));
+			if (currprefs.mmu_model < 68040) {
+				uaecptr desc = mdd->descriptor[0];
+				int type = mdd->descriptor_type[0];
+				for (int i = 0; i < MAX_MMU_DEBUG_DESCRIPTOR_LEVEL; i++) {
+					uaecptr desc = mdd->descriptor[i];
+					int type = mdd->descriptor_type[i];
+					if (desc == 0xffffffff) {
+						break;
+					}
+					uae_u32 descdata = get_long_debug(desc);
+					if (type == DESCR_TYPE_PAGE) {
+						console_out_f(_T(" - PAGE  %08x (%08x = %08x,CI=%d,M=%d,U=%d,WP=%d,DT=%d)\n"),
+							desc, descdata, descdata >> 8,
+							(descdata >> 6) & 1,
+							(descdata >> 4) & 1,
+							(descdata >> 3) & 1,
+							(descdata >> 2) & 1,
+							(descdata >> 0) & 3);
+					} else if (type == DESCR_TYPE_VALID4) {
+						console_out_f(_T(" - TABLE %08x (%08x = %08x,U=%d,WP=%d,DT=%d)\n"),
+							desc, descdata, descdata >> 4,
+							(descdata >> 3) & 1,
+							(descdata >> 2) & 1,
+							(descdata >> 0) & 3);
+					} else if (type == DESCR_TYPE_INVALID) {
+						console_out_f(_T(" - INV   %08x (%08x = %08x,DT=%d)\n"),
+							desc, descdata, descdata >> 2,
+							(descdata >> 0) & 3);
+					}
+				}
+			} else {
+				uaecptr desc = mdd->descriptor[0];
+				uae_u32 descdata = get_long_debug(desc);
+				console_out_f(_T(" - ROOT %08x (%08x = %08x,U=%d,W=%d,UDT=%d)\n"),
+					desc, descdata, descdata & 0xfffffe00,
+					(descdata >> 3) & 1,
+					(descdata >> 2) & 1,
+					(descdata >> 0) & 3);
+				desc = mdd->descriptor[1];
+				if (desc != 0xffffffff) {
+					descdata = get_long_debug(desc);
+					console_out_f(_T(" - PTR  %08x (%08x = %08x,U=%d,W=%d,UDT=%d)\n"),
+						desc, descdata, descdata >> (regs.mmu_page_size == 4096 ? 8 : 7),
+						(descdata >> 3) & 1,
+						(descdata >> 2) & 1,
+						(descdata >> 0) & 3);
+					int pageidx = 2;
+					desc = mdd->descriptor[pageidx];
+					if (desc != 0xffffffff) {
+						descdata = get_long_debug(desc);
+						if ((descdata & 3) ==  2) {
+							console_out_f(_T(" - IND  %08x (%08x = %08x,PDT=%d)\n"),
+								desc, descdata & ~3, descdata & 3);
+							pageidx++;
+						}
+						desc = mdd->descriptor[pageidx];
+						descdata = get_long_debug(desc);
+						if (desc != 0xffffffff) {
+							console_out_f(_T(" - PAGE %08x (%08x = %08x,UR=%d,G=%d,U1=%d,U0=%d,S=%d,CM=%d,M=%d,U=%d,W=%d,PDT=%d)\n"),
+								desc, descdata, descdata >> (regs.mmu_page_size == 4096 ? 12 : 13),
+								(descdata >> 12) & (regs.mmu_page_size == 4096 ? 1 : 3),
+								(descdata >> 10) & 1,
+								(descdata >> 9) & 1,
+								(descdata >> 8) & 1,
+								(descdata >> 7) & 1,
+								(descdata >> 5) & 3,
+								(descdata >> 4) & 1,
+								(descdata >> 3) & 1,
+								(descdata >> 2) & 1,
+								(descdata >> 0) & 3);
+						}
+					}
+				}
+				if (mdd->desc_fault) {
+					console_out_f(_T(" - DESCRIPTOR FAULT\n"));
+				}
+			}
+		} else {
+			console_out_f(_T(" DESCR: ********"));
+			console_out_f(_T("\n"));
+		}
+		if (currprefs.mmu_model >= 68040) {
+			debug_mmu_translate_end();
+		} else {
+			debug_mmu030_translate_end();
 		}
 	}
 }
@@ -7180,8 +7368,18 @@ static bool debug_line (TCHAR *input)
 				if (*inptr == 'm' && inptr[1] == 'u') {
 					inptr += 2;
 					if (inptr[0] == 'd') {
-						if (currprefs.mmu_model >= 68040)
+						if (currprefs.mmu_model >= 68040) {
 							mmu_dump_tables();
+						} else {
+							int fc = debug_mmu_mode;
+							if (more_params(&inptr)) {
+								fc = readint(&inptr, NULL);
+							}
+							if (fc <= 0 || fc > 7) {
+								fc = 2;
+							}
+							mmu030_dump_tables(fc);
+						}
 					} else {
 						if (currprefs.mmu_model) {
 							if (more_params (&inptr))
@@ -7357,35 +7555,8 @@ static bool debug_line (TCHAR *input)
 			break;
 		case 'U':
 			if (currprefs.mmu_model && more_params (&inptr)) {
-				int i;
 				uaecptr addrl = readhex(&inptr, NULL);
-				uaecptr addrp;
-				console_out_f (_T("%08X translates to:\n"), addrl);
-				for (i = 0; i < 4; i++) {
-					bool super = (i & 2) != 0;
-					bool data = (i & 1) != 0;
-					console_out_f (_T("S%dD%d="), super, data);
-					TRY(prb) {
-						if (currprefs.mmu_model >= 68040)
-							addrp = mmu_translate (addrl, 0, super, data, false, sz_long);
-						else
-							addrp = mmu030_translate (addrl, super, data, false);
-						console_out_f (_T("%08X"), addrp);
-						TRY(prb2) {
-							if (currprefs.mmu_model >= 68040)
-								addrp = mmu_translate (addrl, 0, super, data, true, sz_long);
-							else
-								addrp = mmu030_translate (addrl, super, data, true);
-							console_out_f (_T(" RW"));
-						} CATCH(prb2) {
-							console_out_f (_T(" RO"));
-						} ENDTRY
-					} CATCH(prb) {
-						console_out_f (_T("***********"));
-					} ENDTRY
-					console_out_f (_T(" "));
-				}
-				console_out_f (_T("\n"));
+				debug_do_mmu_translate(addrl);
 			}
 			break;
 		case 'h':
@@ -7562,7 +7733,6 @@ void debug (void)
 	if (savestate_state || quit_program)
 		return;
 
-	bogusframe = 1;
 	disasm_init();
 	addhistory ();
 
@@ -7797,6 +7967,7 @@ void debug (void)
 	last_vpos1 = vpos;
 	last_hpos1 = current_hpos();
 	last_frame = timeframes;
+	bogusframe = 1;
 }
 
 const TCHAR *debuginfo (int mode)

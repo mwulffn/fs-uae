@@ -31,7 +31,6 @@
 #include "uae.h"
 #include "memory.h"
 #include "custom.h"
-#include "events.h"
 #include "newcpu.h"
 #include "filesys.h"
 #include "autoconf.h"
@@ -44,15 +43,7 @@
 #include "zarchive.h"
 #include "gui.h"
 #include "gayle.h"
-#include "idecontrollers.h"
 #include "savestate.h"
-#ifdef A2091
-#include "a2091.h"
-#endif
-#ifdef NCR
-#include "ncr_scsi.h"
-#endif
-#include "cdtv.h"
 #include "sana2.h"
 #include "bsdsocket.h"
 #include "uaeresource.h"
@@ -68,7 +59,6 @@
 #include "tabletlibrary.h"
 #include "cia.h"
 #include "picasso96.h"
-#include "cpuboard.h"
 #include "rommgr.h"
 #include "debug.h"
 #include "debugmem.h"
@@ -689,6 +679,7 @@ int get_filesys_unitconfig (struct uae_prefs *p, int index, struct mountedinfo *
 			struct device_info di;
 			ui->hf.ci.readonly = true;
 			ui->hf.ci.blocksize = uci->ci.blocksize;
+			ui->hf.ci.device_emu_unit = uci->ci.device_emu_unit;
 			mi->size = -1;
 			mi->ismounted = true;
 			if (blkdev_get_info (p, ui->hf.ci.device_emu_unit, &di)) {
@@ -5891,9 +5882,6 @@ static void	action_change_mode(TrapContext *ctx, Unit *unit, dpacket *packet)
 	int type = GET_PCK_ARG1 (packet);
 	/* either a file-handle or lock */
 	uaecptr object = GET_PCK_ARG2 (packet) << 2;
-	/* will be EXCLUSIVE_LOCK/SHARED_LOCK if CHANGE_LOCK,
-	* or MODE_OLDFILE/MODE_NEWFILE/MODE_READWRITE if CHANGE_FH *
-	* Above is wrong, it is always *_LOCK. TW. */
 	int mode = GET_PCK_ARG3 (packet);
 	unsigned long uniq;
 	a_inode *a = NULL, *olda = NULL;
@@ -5922,16 +5910,22 @@ static void	action_change_mode(TrapContext *ctx, Unit *unit, dpacket *packet)
 	if (! a) {
 		err = ERROR_INVALID_LOCK;
 	} else {
+		// EXCLUSIVE_LOCK == -1
 		if (mode == -1) {
-			if (a->shlock > 1) {
-				err = ERROR_OBJECT_IN_USE;
-			} else {
-				a->shlock = 0;
-				a->elock = 1;
+			if (!a->elock) {
+				if (a->shlock > 1) {
+					err = ERROR_OBJECT_IN_USE;
+				} else {
+					a->shlock = 0;
+					a->elock = 1;
+				}
 			}
-		} else { /* Must be SHARED_LOCK == -2 */
-			a->elock = 0;
-			a->shlock++;
+		} else {
+			// SHARED_LOCK == -2 (any other than -1)
+			if (a->elock) {
+				a->elock = 0;
+				a->shlock = 1;
+			}
 		}
 	}
 
@@ -8558,11 +8552,16 @@ static int pt_babe(TrapContext *ctx, uae_u8 *bufrdb, UnitInfo *uip, int unit_no,
 
 	bad = rl(bufrdb + 4);
 	if (bad) {
-		if (bad * hfd->ci.blocksize > FILESYS_MAX_BLOCKSIZE)
-			return 0;
-		hdf_read_rdb(hfd, bufrdb2, bad * hfd->ci.blocksize, hfd->ci.blocksize, &error);
-		if (bufrdb2[0] != 0xBA || bufrdb2[1] != 0xD1)
-			return 0;
+		if (bufrdb[0] == 0xba && bufrdb[1] == 0xbe) {
+			if (bad * hfd->ci.blocksize > FILESYS_MAX_BLOCKSIZE)
+				return 0;
+			hdf_read_rdb(hfd, bufrdb2, bad * hfd->ci.blocksize, hfd->ci.blocksize, &error);
+			if (bufrdb2[0] != 0xBA || bufrdb2[1] != 0xD1)
+				return 0;
+		} else {
+			// Only A2090 supports bad blocks. Fireball does not.
+			bad = 0;
+		}
 	}
 
 	if (partnum > 0)
@@ -8866,8 +8865,10 @@ static int rdb_mount (TrapContext *ctx, UnitInfo *uip, int unit_no, int partnum,
 
 	for (rdblock = 0; rdblock < lastblock; rdblock++) {
 		hdf_read_rdb (hfd, bufrdb, rdblock * hfd->ci.blocksize, hfd->ci.blocksize, &error);
-		if (!error && rdblock == 0 && bufrdb[0] == 0xBA && bufrdb[1] == 0xBE) {
-				// A2090 "BABE" partition table?
+		if (!error && rdblock == 0 && (
+			(bufrdb[0] == 0xBA && bufrdb[1] == 0xBE && bufrdb[2] == 0x00 && bufrdb[3] == 0x00) || // A2090
+			(bufrdb[0] == 0x44 && bufrdb[1] == 0x4f && bufrdb[2] == 0x53 && bufrdb[3] == 0x00 && bufrdb[4] == 0xBA && bufrdb[5] == 0xBE))) { // MAST
+				// A2090 or Mast FireBall "BABE" partition table?
 				int v = pt_babe(ctx, bufrdb, uip, unit_no, partnum, parmpacket);
 				if (v)
 					return v;

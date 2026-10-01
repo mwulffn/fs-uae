@@ -11,16 +11,12 @@
 #include "custom.h"
 #include "xwin.h"
 #include "win32.h"
-#include "win32gfx.h"
 #include "gfxfilter.h"
 #include "render.h"
-#include "statusline.h"
 #include "drawing.h"
 #include "direct3d.h"
 
-#include <float.h>
-
-#define AUTORESIZE_FRAME_DELAY 10
+#define AUTORESIZE_FRAME_DELAY 4
 
 #endif
 
@@ -50,17 +46,16 @@ static bool getmanualpos(int monid, int *cxp, int *cyp, int *cwp, int *chp)
 	struct vidbuf_description *avidinfo = &adisplays[monid].gfxvidinfo;
 	int v, cx, cy, cw, ch;
 	bool native = isnativevidbuf(monid);
-	int hres = gethresolution();
 
 	cx = *cxp;
 	cy = *cyp;
 	v = currprefs.gfx_xcenter_pos;
-	if (v >= 0) {
+	if (v >= MANUAL_SCALE_MIN_RANGE) {
 		cx = (v >> (RES_MAX - currprefs.gfx_resolution)) - cx;
 	}
 
 	v = currprefs.gfx_ycenter_pos;
-	if (v >= 0) {
+	if (v >= MANUAL_SCALE_MIN_RANGE) {
 		cy = (v >> (VRES_MAX - currprefs.gfx_vresolution)) - cy;
 	}
 
@@ -101,7 +96,7 @@ static bool getmanualpos(int monid, int *cxp, int *cyp, int *cwp, int *chp)
 	*cwp = cw;
 	*chp = ch;
 
-	return currprefs.gfx_xcenter_pos >= 0 || currprefs.gfx_ycenter_pos >= 0 || currprefs.gfx_xcenter_size > 0 || currprefs.gfx_ycenter_size > 0;
+	return currprefs.gfx_xcenter_pos >= MANUAL_SCALE_MIN_RANGE || currprefs.gfx_ycenter_pos >= MANUAL_SCALE_MIN_RANGE || currprefs.gfx_xcenter_size > 0 || currprefs.gfx_ycenter_size > 0;
 }
 
 static bool get_auto_aspect_ratio(int monid, int cw, int ch, int crealh, int scalemode, float *autoaspectratio, int idx)
@@ -121,6 +116,44 @@ static bool get_auto_aspect_ratio(int monid, int cw, int ch, int crealh, int sca
 		return true;
 	}
 	return false;
+}
+
+static float getpalntscratio(float dstratio, int keep_aspect, int palntscadjust)
+{
+	int lh = 0;
+	bool isp = ispal(&lh);
+	float palntscratio = dstratio;
+	if (lh > 1) {
+		float palh = (313 - 25) * 2 + 1.0f;
+		float ntsch = (263 - 20) * 2 + 1.0f;
+		float ll = lh * 2 + 1.0f;
+		if (abs(lh - (263 - 20)) <= 22) {
+			ll = ntsch;
+		}
+		if (abs(lh - (313 - 25)) <= 22) {
+			ll = palh;
+		}
+		if (currprefs.ntscmode) {
+			if (palntscadjust && !isp) {
+				palntscratio = palntscratio * palh / ll;
+			}
+			if (keep_aspect == 2 && isp) {
+				palntscratio = palntscratio * 0.93f;
+			} else if (keep_aspect == 1 && !isp) {
+				palntscratio = palntscratio * 0.98f;
+			}
+		} else {
+			if (palntscadjust && !isp) {
+				palntscratio = palntscratio * palh / ll;
+			}
+			if (keep_aspect == 2 && isp) {
+				palntscratio = palntscratio * 0.95f;
+			} else if (keep_aspect == 1 && !isp) {
+				palntscratio = palntscratio * 0.95f;
+			}
+		}
+	}
+	return palntscratio;
 }
 
 static bool get_aspect(int monid, float *dstratiop, float *srcratiop, float *xmultp, float *ymultp, bool doautoaspect, float autoaspectratio, int keep_aspect, int filter_aspect)
@@ -199,7 +232,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 	int idx = ad->gf_index;
 	int keep_aspect = currprefs.gf[idx].gfx_filter_keep_aspect;
 	int filter_aspect = currprefs.gf[idx].gfx_filter_aspect;
-	int palntscadjust = 1;
+	int palntscadjust = currprefs.gfx_ntscpixels;
 	int autoselect = 0;
 
 	float filter_horiz_zoom = currprefs.gf[idx].gfx_filter_horiz_zoom / 1000.0f;
@@ -252,7 +285,6 @@ void getfilterdata(int monid, struct displayscale *ds)
 	if (!specialmode && scalemode == AUTOSCALE_STATIC_AUTO) {
 		filter_aspect = 0;
 		keep_aspect = 0;
-		palntscadjust = 1;
 		if (ds->dstwidth >= 640 && ds->dstwidth <= 800 && ds->dstheight >= 480 && ds->dstheight <= 600 && !programmedmode) {
 			autoselect = 1;
 			scalemode = AUTOSCALE_NONE;
@@ -290,7 +322,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 
 	if (scalemode) {
 		int cw, ch, cx, cy, cv = 0, crealh = 0;
-		int hres = currprefs.gfx_resolution;
+		int hres = gethresolution();
 		int vres = currprefs.gfx_vresolution;
 		static int oxmult, oymult;
 
@@ -303,7 +335,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 		if (scalemode == AUTOSCALE_STATIC_MAX || scalemode == AUTOSCALE_STATIC_NOMINAL ||
 			scalemode == AUTOSCALE_INTEGER || scalemode == AUTOSCALE_INTEGER_AUTOSCALE) {
 
-			if (scalemode == AUTOSCALE_STATIC_NOMINAL || scalemode == AUTOSCALE_STATIC_NOMINAL || scalemode == AUTOSCALE_STATIC_MAX) {
+			if (scalemode == AUTOSCALE_STATIC_NOMINAL || scalemode == AUTOSCALE_STATIC_MAX) {
 				// do not default/TV scale programmed modes
 				if (programmedmode) {
 					goto skipcont;
@@ -322,7 +354,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 				cw = avidinfo->drawbuffer.inwidth;
 				ch = avidinfo->drawbuffer.inheight;
 				cv = 1;
-				if (scalemode == AUTOSCALE_STATIC_NOMINAL) { // || scalemode == AUTOSCALE_INTEGER)) {
+				if (scalemode == AUTOSCALE_STATIC_NOMINAL) {
 					if (currprefs.gfx_overscanmode < OVERSCANMODE_ULTRA) {
 						cx = 28 << currprefs.gfx_resolution;
 						cy = 10 << currprefs.gfx_vresolution;
@@ -355,7 +387,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 				bool ok = true;
 				bool manual = false;
 
-				if (currprefs.gfx_xcenter_pos >= 0 || currprefs.gfx_ycenter_pos >= 0) {
+				if (currprefs.gfx_xcenter_pos >= MANUAL_SCALE_MIN_RANGE || currprefs.gfx_ycenter_pos >= MANUAL_SCALE_MIN_RANGE) {
 					changed_prefs.gf[idx].gfx_filter_horiz_offset = currprefs.gf[idx].gfx_filter_horiz_offset = 0.0;
 					changed_prefs.gf[idx].gfx_filter_vert_offset = currprefs.gf[idx].gfx_filter_vert_offset = 0.0;
 					filter_horiz_offset = 0.0;
@@ -450,7 +482,7 @@ void getfilterdata(int monid, struct displayscale *ds)
 			filter_horiz_offset = 0.0;
 			filter_vert_offset = 0.0;
 
-			get_custom_topedge (&cx, &cy, currprefs.gfx_xcenter_pos < 0 && currprefs.gfx_ycenter_pos < 0);
+			get_custom_topedge (&cx, &cy, currprefs.gfx_xcenter_pos < MANUAL_SCALE_MIN_RANGE && currprefs.gfx_ycenter_pos < MANUAL_SCALE_MIN_RANGE);
 			//write_log (_T("%dx%d %dx%d\n"), cx, cy, currprefs.gfx_resolution, currprefs.gfx_vresolution);
 
 			getmanualpos(monid, &cx, &cy, &cw, &ch);
@@ -503,8 +535,11 @@ void getfilterdata(int monid, struct displayscale *ds)
 
 			if (scalemode == AUTOSCALE_CENTER) {
 
-				int ww = cw * ds->scale;
-				int hh = ch * ds->scale;
+				int scalex = ds->scale;
+				int scaley = ds->scale;
+
+				int ww = cw * scalex;
+				int hh = ch * scaley;
 
 				ds->outwidth = ds->dstwidth * ds->scale;
 				ds->outheight = ds->dstheight * ds->scale;
@@ -557,6 +592,9 @@ void getfilterdata(int monid, struct displayscale *ds)
 				float scalex = currprefs.gf[idx].gfx_filter_horiz_zoom_mult > 0 ? currprefs.gf[idx].gfx_filter_horiz_zoom_mult : 1.0f;
 				float scaley = currprefs.gf[idx].gfx_filter_vert_zoom_mult > 0 ? currprefs.gf[idx].gfx_filter_vert_zoom_mult : 1.0f;
 
+				float palntscratio = getpalntscratio(dstratio, keep_aspect, palntscadjust);
+				scaley = scaley * palntscratio / dstratio;
+
 				ds->outwidth = (int)(cw * ds->scale);
 				ds->outheight = (int)(ch * ds->scale);
 				ds->xoffset += cx * ds->scale;
@@ -564,24 +602,32 @@ void getfilterdata(int monid, struct displayscale *ds)
 
 				int ww = (int)(ds->outwidth * scalex);
 				int hh = (int)(ds->outheight * scaley);
-				if (currprefs.gfx_xcenter_size >= 0)
+				if (currprefs.gfx_xcenter_size >= 0) {
 					ww = currprefs.gfx_xcenter_size;
-				if (currprefs.gfx_ycenter_size >= 0)
+				}
+				if (currprefs.gfx_ycenter_size >= 0) {
 					hh = currprefs.gfx_ycenter_size;
+				}
 				if (scalemode == oscalemode && !useold) {
 					int oldwinw = gmc->gfx_size_win.width;
 					int oldwinh = gmc->gfx_size_win.height;
 					gmh->gfx_size_win.width = ww;
 					gmh->gfx_size_win.height = hh;
 					fixup_prefs_dimensions (&changed_prefs);
-					if (oldwinw != gmh->gfx_size_win.width || oldwinh != gmh->gfx_size_win.height)
+					if (oldwinw != gmh->gfx_size_win.width || oldwinh != gmh->gfx_size_win.height) {
 						set_config_changed ();
+					}
 				}
 				ds->xoffset += -(gmh->gfx_size_win.width - ww + 1) / 2;
 				ds->yoffset += -(gmh->gfx_size_win.height - hh + 1) / 2;
 
 				filteroffsetx = (float)-ds->xoffset / ds->scale;
 				filteroffsety = (float)-ds->yoffset / ds->scale;
+
+				diff = ds->outwidth;
+				filterxmult = ((float)ds->dstwidth * ds->scale) / diff;
+				diff = ds->outheight;
+				filterymult = ((float)ds->dstheight * ds->scale) / diff;
 				goto end;
 			}
 
@@ -684,63 +730,8 @@ cont:
 	}
 
 	{
-		int lh = 0;
-		bool isp = ispal(&lh);
-		if (lh > 1) {
-			float palntscratio = dstratio;
-			float palh = (312 - 25) * 2 + 1.0f;
-			float ntsch = (262 - 20) * 2 + 1.0f;
-			float ll = (lh - 23) * 2 + 1.0f;
-			if (abs(lh - (262 - 20)) <= 22) {
-				ll = ntsch;
-			}
-			if (abs(lh - (312 - 25)) <= 22) {
-				ll = palh;
-			}
-			if (currprefs.gfx_ntscpixels) {
-				if (!isp) {
-					palntscratio = palntscratio * palh / ll;
-				}
-				if (currprefs.ntscmode) {
-					if (keep_aspect == 2 && isp) {
-						palntscratio = palntscratio * 0.93f;
-					}
-					else if (keep_aspect == 1 && !isp) {
-						palntscratio = palntscratio * 0.98f;
-					}
-				} else {
-					if (keep_aspect == 2 && isp) {
-						palntscratio = palntscratio * 0.95f;
-					}
-					else if (keep_aspect == 1 && !isp) {
-						palntscratio = palntscratio * 0.95f;
-					}
-				}
-			} else {
-				if (currprefs.ntscmode) {
-					if (palntscadjust && isp) {
-						palntscratio = palntscratio * ntsch / ll;
-					}
-					if (keep_aspect == 2 && isp) {
-						palntscratio = palntscratio * 0.93f;
-					} else if (keep_aspect == 1 && !isp) {
-						palntscratio = palntscratio * 0.98f;
-					}
-				} else {
-					if (palntscadjust && !isp) {
-						palntscratio = palntscratio * palh / ll;
-					}
-					if (keep_aspect == 2 && isp) {
-						palntscratio = palntscratio * 0.95f;
-					} else if (keep_aspect == 1 && !isp) {
-						palntscratio = palntscratio * 0.95f;
-					}
-				}
-			}
-			if (palntscratio != dstratio) {
-				ymult = ymult * palntscratio / dstratio;
-			}
-		}
+		float palntscratio = getpalntscratio(dstratio, keep_aspect, palntscadjust);
+		ymult = ymult * palntscratio / dstratio;
 	}
 
 	if (srcratio > dstratio) {
@@ -779,8 +770,9 @@ cont:
 
 	filterxmult = xmult;
 	filterymult = ymult;
-	filteroffsetx += (ds->dstwidth - ds->srcwidth * filterxmult) / 2;
-	filteroffsety += (ds->dstheight - ds->srcheight * filterymult) / 2;
+
+	filteroffsetx = (float)-ds->xoffset / ds->scale;
+	filteroffsety = (float)-ds->yoffset / ds->scale;
 
 end:
 
@@ -810,7 +802,7 @@ void freefilterbuffer(int monid, uae_u8 *buf, bool unlock)
 {
 	struct AmigaMonitor *mon = &AMonitors[monid];
 	struct vidbuf_description *avidinfo = &adisplays[monid].gfxvidinfo;
-	struct vidbuffer *vb = avidinfo->outbuffer;
+	struct vidbuffer *vb = avidinfo->inbuffer;
 
 	if (!vb)
 		return;
@@ -823,7 +815,7 @@ uae_u8 *getfilterbuffer(int monid, int *widthp, int *heightp, int *pitch, int *d
 {
 	struct AmigaMonitor *mon = &AMonitors[monid];
 	struct vidbuf_description *avidinfo = &adisplays[monid].gfxvidinfo;
-	struct vidbuffer *vb = avidinfo->outbuffer;
+	struct vidbuffer *vb = avidinfo->inbuffer;
 	int w, h;
 
 	*widthp = 0;

@@ -44,13 +44,11 @@
 #include "ar.h"
 #include "gui.h"
 #include "disk.h"
-#include "audio.h"
 #include "sounddep/sound.h"
 #include "savestate.h"
 #ifdef ARCADIA
 #include "arcadia.h"
 #endif
-#include "zfile.h"
 #include "cia.h"
 #include "autoconf.h"
 #ifdef WITH_X86
@@ -159,7 +157,7 @@ static int joymodes[MAX_JPORTS][MAX_JPORT_DEVS], joysubmodes[MAX_JPORTS][MAX_JPO
 static const int *joyinputs[MAX_JPORTS];
 
 static int input_acquired;
-static int testmode;
+static int testmode, testmode_oneshot;
 struct teststore
 {
 	int testmode_type;
@@ -488,8 +486,7 @@ static int digital_port[NORMAL_JPORTS][2];
 static int lightpen_port[NORMAL_JPORTS];
 int cubo_enabled;
 uae_u32 cubo_flag;
-#define POTDAT_DELAY_PAL 8
-#define POTDAT_DELAY_NTSC 7
+#define POTDAT_DELAY 8
 
 static int use_joysticks[MAX_INPUT_DEVICES];
 static int use_mice[MAX_INPUT_DEVICES];
@@ -2664,7 +2661,7 @@ static bool get_mouse_position(int *xp, int *yp, int inx, int iny)
 
 	getgfxoffset(monid, &fdx, &fdy, &fmx, &fmy);
 
-	//write_log("%.2f*%.2f %.2f*%.2f\n", fdx, fdy, fmx, fmy);
+	//write_log("%d %d, %.2f*%.2f %.2f*%.2f\n", x, y, fdx, fdy, fmx, fmy);
 
 #ifdef PICASSO96
 	if (ad->picasso_on) {
@@ -3364,8 +3361,6 @@ end:
 		if (!ad->picasso_on) {
 			int aw = 0, ah = 0, dx, dy;
 			get_custom_mouse_limits(&aw, &ah, &dx, &dy, dimensioninfo_dbl);
-			x += dx;
-			y += dy;
 			float dx2, dy2, mx2, my2;
 			getgfxoffset(monid, &dx2, &dy2, &mx2, &my2);
 			if (mx2) {
@@ -3374,6 +3369,8 @@ end:
 			if (my2) {
 				y = (int)(y / my2);
 			}
+			x += dx;
+			y += dy;
 			x += (int)dx2;
 			y += (int)dy2;
 		} else {
@@ -3861,10 +3858,8 @@ static void charge_cap (int joy, int idx, int charge)
 
 static void cap_check(bool hsync)
 {
-	int joy, i;
-
-	for (joy = 0; joy < 2; joy++) {
-		for (i = 0; i < 2; i++) {
+	for (int joy = 0; joy < 2; joy++) {
+		for (int i = 0; i < 2; i++) {
 			bool cancharge = true;
 			int charge = 0, dong, joypot;
 			uae_u16 pdir = 0x0200 << (joy * 4 + i * 2); /* output enable */
@@ -3903,9 +3898,9 @@ static void cap_check(bool hsync)
 				if (pot_dat_act[joy][i] && hsync) {
 					pot_dat[joy][i]++;
 				}
-				/* first 7 or 8 lines after potgo has been started = discharge cap */
+				/* first 8 lines after potgo has been started = discharge cap */
 				if (pot_dat_act[joy][i] == 1) {
-					if (pot_dat[joy][i] < (currprefs.ntscmode ? POTDAT_DELAY_NTSC : POTDAT_DELAY_PAL)) {
+					if (pot_dat[joy][i] < POTDAT_DELAY) {
 						charge = -2; /* fast discharge delay */
 						cancharge = hsync;
 					} else {
@@ -4368,9 +4363,14 @@ void inputdevice_playevents(void)
 		handle_input_event(nr, state, max, (autofire ? HANDLE_IE_FLAG_AUTOFIRE : 0) | HANDLE_IE_FLAG_PLAYBACKEVENT);
 }
 
-void inputdevice_hsync (bool forceread)
+// strobe slot is clock for pot counters
+void inputdevice_hsync_strobe(void)
 {
 	cap_check(true);
+}
+
+void inputdevice_hsync(bool forceread)
+{
 
 #ifdef CATWEASEL
 	catweasel_hsync ();
@@ -7132,9 +7132,16 @@ int inputdevice_get_compatibility_input (struct uae_prefs *prefs, int index, int
 				if (port - 1 != index)
 					continue;
 				for (k = 0; axistable[k] >= 0; k += 3) {
-					if (evtnum2 == axistable[k] || evtnum2 == axistable[k + 1] || evtnum2 == axistable[k + 2]) {
+					if (evtnum2 == axistable[k + 0]) {
 						for (l = 0; inputlist[l] >= 0; l++) {
-							if (inputlist[l] == axistable[k] || inputlist[l] == axistable[k + 1] || inputlist[l] == axistable[k + 1]) {
+							if (inputlist[l] == axistable[k + 1] || inputlist[l] == axistable[k + 2]) {
+								ignore = true;
+							}
+						}
+					}
+					if (evtnum2 == axistable[k + 1] || evtnum2 == axistable[k + 2]) {
+						for (l = 0; inputlist[l] >= 0; l++) {
+							if (inputlist[l] == axistable[k + 0]) {
 								ignore = true;
 							}
 						}
@@ -9607,8 +9614,14 @@ static void inputdevice_testrecord_test(int type, int num, int wtype, int wnum, 
 		testmode = -1;
 		return;
 	}
-	if (testmode_count >= TESTMODE_MAX)
+
+	if (testmode_count >= TESTMODE_MAX) {
 		return;
+	}
+	if (testmode_oneshot && testmode_count > 0) {
+		return;
+	}
+
 	if (type == IDTYPE_KEYBOARD) {
 		if (wnum >= 0x100) {
 			wnum = 0x100 - wnum;
@@ -9651,6 +9664,7 @@ static void inputdevice_testrecord_test(int type, int num, int wtype, int wnum, 
 	}
 
 	//write_log (_T("%d %d %d %d %d/%d\n"), type, num, wtype, wnum, state, max);
+
 	struct teststore *ts = &testmode_data[testmode_count];
 	ts->testmode_type = type;
 	ts->testmode_num = num;
@@ -9675,10 +9689,11 @@ int inputdevice_istest (void)
 {
 	return testmode;
 }
-void inputdevice_settest (int set)
+void inputdevice_settest (bool set, bool singleevent)
 {
-	testmode = set;
+	testmode = set ? 1 : 0;
 	testmode_count = 0;
+	testmode_oneshot = singleevent ? 1 : 0;
 	testmode_wait[0].testmode_num = -1;
 	testmode_wait[1].testmode_num = -1;
 }

@@ -77,7 +77,6 @@ static bool automatic;
 static int monitor;
 
 extern uae_u16 bplcon0;
-extern uae_u8 **row_map_genlock;
 
 static uae_u8 graffiti_palette[256 * 4];
 
@@ -814,7 +813,7 @@ static bool firecracker24(struct vidbuffer *src, struct vidbuffer *dst, bool dou
 		if (yoff >= src->inheight)
 			continue;
 		uae_u8 *line = src->bufmem + yoff * src->rowbytes;
-		uae_u8 *line_genlock = row_map_genlock[yoff];
+		uae_u8 *line_genlock = get_row_genlock(0, yoff);
 		uae_u8 *dstline = dst->bufmem + (((y * 2 + oddlines) - dst->yoffset) / vdbl) * dst->rowbytes;
 		uae_u8 *vramline = sm_frame_buffer + (fc24_y + oddlines) * SM_VRAM_WIDTH * SM_VRAM_BYTES + bufferoffset;
 		fc24_x = 0;
@@ -1685,7 +1684,7 @@ static bool ham_e(struct vidbuffer *src, struct vidbuffer *dst, bool doublelines
 		if (yoff >= src->inheight)
 			continue;
 		uae_u8 *line = src->bufmem + yoff * src->rowbytes;
-		uae_u8 *line_genlock = row_map_genlock[yoff];
+		uae_u8 *line_genlock = get_row_genlock(0, yoff);
 		uae_u8 *dstline = dst->bufmem + (((y * 2 + oddlines) - dst->yoffset) / vdbl) * dst->rowbytes;
 
 		bool getpalette = false;
@@ -2052,7 +2051,8 @@ static bool a2024(struct vidbuffer *src, struct vidbuffer *dst)
 	doff = ((dxoff << RES_MAX) / avidinfo->xchange) * src->pixbytes;
 	found = false;
 
-	for (idline = 21; idline <= 29; idline += 8) {
+	int idlinestart = 21;
+	for (idline = idlinestart; idline <= idlinestart + 8; idline += 8) {
 		if (src->yoffset > (idline << VRES_MAX))
 			continue;
 		int x = (210 << RES_MAX) - src->xoffset;
@@ -2603,7 +2603,7 @@ skip:
 		bool ztoggle = false;
 		uae_u8 *line = src->bufmem + yoff * src->rowbytes;
 		uae_u8 *dstline = dst->bufmem + (((y * 2 + oddlines) - dst->yoffset) >> vdbl) * dst->rowbytes;
-		uae_u8 *line_genlock = row_map_genlock[yoff];
+		uae_u8 *line_genlock = get_row_genlock(0, yoff);
 		int gy = (((y * 2 + oddlines) - src->yoffset + offsety - gen_yoffset) >> vdbl) * deltay / 65536;
 		if (genlock_image_upsidedown)
 			gy = (genlock_image_height - 1) - gy;
@@ -3020,7 +3020,7 @@ static bool opalvision(struct vidbuffer *src, struct vidbuffer *dst, bool double
 		int yoff = (((y * 2 - oddlines) - src->yoffset) / vdbl);
 		if (yoff >= 0 && yoff < src->inheight) {
 			line = src->bufmem + yoff * src->rowbytes;
-			line_genlock = row_map_genlock ? row_map_genlock[yoff] : NULL;
+			line_genlock = get_row_genlock(0, yoff);
 			dstline = dst->bufmem + (((y * 2 - oddlines) - dst->yoffset) / vdbl) * dst->rowbytes;
 			if (y >= yimgstart) {
 				ydisp = y - yimgstart;
@@ -3663,10 +3663,6 @@ static bool emulate_specialmonitors2(struct vidbuffer *src, struct vidbuffer *ds
 
 bool emulate_specialmonitors(struct vidbuffer *src, struct vidbuffer *dst)
 {
-	// compatibility fix for new chipset emulation
-	uae_u8 *bf = src->bufmem;
-	src->bufmem -= src->rowbytes;
-	
 	bool ret = true;
 	if (!emulate_specialmonitors2(src, dst, -1)) {
 		if (monitor) {
@@ -3676,8 +3672,6 @@ bool emulate_specialmonitors(struct vidbuffer *src, struct vidbuffer *dst)
 		}
 		ret = false;
 	}
-
-	src->bufmem = bf;
 	return ret;
 }
 

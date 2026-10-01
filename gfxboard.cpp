@@ -53,7 +53,6 @@ static bool memlogw = true;
 #include "rommgr.h"
 #include "zfile.h"
 #include "gfxboard.h"
-#include "rommgr.h"
 #include "xwin.h"
 #include "devices.h"
 #include "gfxfilter.h"
@@ -62,7 +61,6 @@ static bool memlogw = true;
 #include "pci_hw.h"
 #include "pcem/pcemglue.h"
 #include "qemuvga/qemuuaeglue.h"
-#include "qemuvga/vga.h"
 #include "draco.h"
 #include "autoconf.h"
 
@@ -270,7 +268,7 @@ static const struct gfxboard boards[] =
 		GFXBOARD_ID_ALTAIS_Z3,
 		_T("Altais [DracoBus]"), _T("MacroSystem"), _T("Altais"),
 		18260, 19, 0, 0,
-		0x00000000, 0x00400000, 0x00400000, 0x00400000, 0, BOARD_NONAUTOCONFIG_BEFORE, 3, false, false,
+		0x00000000, 0x00400000, 0x00400000, 0x00400000, 0, BOARD_NONAUTOCONFIG_BEFORE, 3, false, true,
 		0, 0, NULL, &ncr_retina_z3_device, 0, GFXBOARD_BUSTYPE_DRACO
 	},
 	{
@@ -573,6 +571,7 @@ static struct rtggfxboard rtggfxboards[MAX_RTG_BOARDS];
 static struct rtggfxboard *only_gfx_board;
 static int rtg_visible[MAX_AMIGADISPLAYS];
 static int rtg_initial[MAX_AMIGADISPLAYS];
+static int initial_done;
 static int total_active_gfx_boards;
 static int vram_ram_a8;
 static DisplaySurface fakesurface;
@@ -1000,6 +999,21 @@ static void gfxboard_hsync_handler(void)
 	pcemglue_hsync();
 }
 
+static void init_initial(struct rtggfxboard *gb)
+{
+	if (initial_done) {
+		return;
+	}
+	if (gb->vram && gb->rbc->initial_active && rtg_visible[gb->monitor_id] < 0 && rtg_initial[gb->monitor_id] >= 0) {
+		int init = rtg_initial[gb->monitor_id];
+		if (gfxboard_toggle(gb->monitor_id, 0, 0) >= 0) {
+			initial_done = 1;
+		} else {
+			rtg_initial[gb->monitor_id] = init;
+		}
+	}
+}
+
 static void reinit_vram(struct rtggfxboard *gb, uaecptr vram, bool direct)
 {
 	if (vram == gb->gfxmem_bank->start)
@@ -1417,6 +1431,19 @@ bool gfxboard_set(int monid, bool rtg)
 	return r;
 }
 
+int gfxboard_monitor_visible(int monid)
+{
+	if (gfxboard_isgfxboardscreen(monid)) {
+		return 1;
+	}
+	if (currprefs.monitoremu && currprefs.monitoremu_mon == monid) {
+		if (rtg_visible[monid] > 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
 void gfxboard_rtg_disable(int monid, int index)
 {
 	if (monid > 0)
@@ -1703,6 +1730,8 @@ void gfxboard_vsync_handler(bool full_redraw_required, bool redraw_required)
 		struct amigadisplay *ad = &adisplays[gb->monitor_id];
 		struct picasso96_state_struct *state = &picasso96_state[gb->monitor_id];
 
+		init_initial(gb);
+
 		if (gb->func) {
 
 			if (gb->userdata) {
@@ -1750,7 +1779,7 @@ void gfxboard_vsync_handler(bool full_redraw_required, bool redraw_required)
 					}
 				}
 #endif
-				if ((!gb->board->hasswitcher && gb->rbc->autoswitch) && gb->vram) {
+				if (((!gb->board->hasswitcher && gb->rbc->autoswitch) || gb->board->id == GFXBOARD_ID_ALTAIS_Z3) && gb->vram) {
 					bool svga_on(void *p);
 					bool on = svga_on(gb->pcemobject2);
 					set_monswitch(gb, on);
@@ -3587,6 +3616,23 @@ void gfxboard_reset (void)
 	}
 }
 
+void gfxboard_reset_init(void)
+{
+	initial_done = 1;
+	for (int i = 0; i < MAX_RTG_BOARDS; i++) {
+		struct rtgboardconfig *rbc = &currprefs.rtgboards[i];
+		if (rbc->initial_active) {
+			rtg_initial[rbc->monitor_id] = i;
+			if (rbc->monitor_id == 0) {
+				struct amigadisplay *ad = &adisplays[0];
+				ad->picasso_on = 1;
+				ad->picasso_requested_on = 1;
+				initial_done = 0;
+			}
+		}
+	}
+}
+
 static uae_u32 REGPARAM2 gfxboards_lget_regs (uaecptr addr)
 {
 	struct rtggfxboard *gb = getgfxboard(addr);
@@ -4592,7 +4638,7 @@ static const struct pci_board s3virge_pci_board =
 	_T("S3VIRGE"),
 	&s3virge_pci_config, NULL, NULL, NULL, NULL, NULL,
 	{
-		{ voodoo3_mb0_lget, voodoo3_mb0_wget, voodoo3_mb0_bget, voodoo3_mb0_lput, voodoo3_mb0_wput, voodoo3_mb0_bput },
+		{ s3virge_mb0_lget, s3virge_mb0_wget, s3virge_mb0_bget, s3virge_mb0_lput, s3virge_mb0_wput, s3virge_mb0_bput },
 		{ NULL },
 		{ NULL },
 		{ NULL },

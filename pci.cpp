@@ -18,7 +18,6 @@
 #include "sysdeps.h"
 
 #include "options.h"
-#include "custom.h"
 #include "memory.h"
 #include "debug.h"
 #include "pci_hw.h"
@@ -28,7 +27,6 @@
 #include "uae.h"
 #include "rommgr.h"
 #include "cpuboard.h"
-#include "autoconf.h"
 #include "devices.h"
 
 #include "qemuvga/qemuuaeglue.h"
@@ -722,7 +720,9 @@ static uae_u32 REGPARAM2 pci_config_wget(uaecptr addr)
 			v |= config[(offset ^ (endianswap > 0 ? 2 : 0)) + 0] << 0;
 		}
 #if PCI_DEBUG_CONFIG
-		write_log(_T("-> %04x\n"), v);
+		if (config != config_return) {
+			write_log(_T("-> %04x\n"), v);
+		}
 #endif
 	}
 	return v;
@@ -740,7 +740,9 @@ static uae_u32 REGPARAM2 pci_config_bget(uaecptr addr)
 			v = config[beswap(endianswap, offset)];
 		}
 #if PCI_DEBUG_CONFIG
-		write_log(_T("-> %02x\n"), v);
+		if (config != config_return) {
+			write_log(_T("-> %02x\n"), v);
+		}
 #endif
 	}
 	return v;

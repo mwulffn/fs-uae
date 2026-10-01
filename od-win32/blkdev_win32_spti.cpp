@@ -13,26 +13,15 @@
 
 #ifdef WINDDK
 
-#include "traps.h"
-#include "memory.h"
 #include "threaddep/thread.h"
 #include "blkdev.h"
 #include "scsidev.h"
 #include "gui.h"
-#ifdef RETROPLATFORM
-#include "rp.h"
-#endif
 
-#include <stddef.h>
-
-#include <devioctl.h>
-#include <ntddstor.h>
 #include <winioctl.h>
-#include <initguid.h>   // Guid definition
 #include <devguid.h>    // Device guids
 #include <setupapi.h>   // for SetupDiXxx functions.
 #include <ntddscsi.h>
-#include <mmsystem.h>
 
 #include "cda_play.h"
 

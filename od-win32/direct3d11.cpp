@@ -2,7 +2,6 @@
 /* Direct3D 11 graphics renderer */
 
 #include <windows.h>
-#include "resource.h"
 
 #include <DXGI1_5.h>
 #include <dxgi1_6.h>
@@ -28,7 +27,6 @@ using Microsoft::WRL::ComPtr;
 #include "statusline.h"
 #include "hq2x_d3d.h"
 #include "gui.h"
-#include "gfxboard.h"
 
 #include "d3dx.h"
 
@@ -42,7 +40,6 @@ using Microsoft::WRL::ComPtr;
 
 #include "FX11/d3dx11effect.h"
 
-#include <process.h>
 #include <Dwmapi.h>
 
 void (*D3D_free)(int, bool immediate);
@@ -419,8 +416,9 @@ D3DGETBLOBPART pD3DGetBlobPart;
 static int isfs(struct d3d11struct *d3d)
 {
 	int fs = isfullscreen();
-	if (fs > 0 && d3d->guimode)
+	if (fs > 0 && d3d->guimode) {
 		return -1;
+	}
 	return fs;
 }
 
@@ -1823,14 +1821,6 @@ static void FreeTextures(struct d3d11struct *d3d)
 	}
 	freesprite(&d3d->mask2textureled_power_dim);
 	freesprite(&d3d->blanksprite);
-	struct d3doverlay *ov = d3d->extoverlays;
-	while (ov) {
-		struct d3doverlay *next = ov->next;
-		freesprite(&ov->s);
-		xfree(ov);
-		ov = next;
-	}
-	d3d->extoverlays = NULL;
 	for (int i = 0; i < MAX_SHADERS; i++) {
 		freeshaderdata(&d3d->shaders[i]);
 	}
@@ -1912,6 +1902,20 @@ static bool InitializeBuffers(struct d3d11struct *d3d, ID3D11Buffer **vertexBuff
 	return true;
 }
 
+static void erasetexture(struct d3d11struct *d3d, ID3D11Texture2D *t, D3D11_TEXTURE2D_DESC *d)
+{
+	D3D11_MAPPED_SUBRESOURCE map;
+	HRESULT hr = d3d->m_deviceContext->Map(t, 0, d->Usage == D3D11_USAGE_DYNAMIC ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE, 0, &map);
+	if (SUCCEEDED(hr)) {
+		uae_u8 *p = (uae_u8*)map.pData;
+		for (int i = 0; i < d->Height; i++) {
+			memset(p, 0, d->Width * 4);
+			p += map.RowPitch;
+		}
+		d3d->m_deviceContext->Unmap(t, 0);
+	}
+}
+
 static void setsprite(struct d3d11struct *d3d, struct d3d11sprite *s, float x, float y)
 {
 	s->x = x;
@@ -1971,6 +1975,7 @@ static bool allocsprite(struct d3d11struct *d3d, struct d3d11sprite *s, int widt
 		write_log(_T("CreateTexture2D (%dx%d) failed: %08x\n"), width, height, hr);
 		goto err;
 	}
+	erasetexture(d3d, s->texture, &desc);
 
 	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MostDetailedMip = 0;
@@ -1990,21 +1995,6 @@ err:
 	freesprite(s);
 	return false;
 }
-
-#if 0
-static void erasetexture(struct d3d11struct *d3d)
-{
-	int pitch;
-	uae_u8 *p = D3D_locktexture(d3d->num, &pitch, NULL, true);
-	if (p) {
-		for (int i = 0; i < d3d->m_bitmapHeight; i++) {
-			memset(p, 255, d3d->m_bitmapWidth * d3d->texdepth / 8);
-			p += pitch;
-		}
-		D3D_unlocktexture(d3d->num, -1, -1);
-	}
-}
-#endif
 
 static bool CreateTexture(struct d3d11struct *d3d)
 {
@@ -2050,6 +2040,8 @@ static bool CreateTexture(struct d3d11struct *d3d)
 		write_log(_T("CreateTexture2D (staging) failed: %08x\n"), hr);
 		return false;
 	}
+	erasetexture(d3d, d3d->texture2dstaging, &desc);
+	d3d->m_deviceContext->CopyResource(d3d->texture2d, d3d->texture2dstaging);
 
 	desc.Width = d3d->m_bitmapWidth;
 	desc.Height = d3d->m_bitmapHeight;
@@ -3418,14 +3410,19 @@ static float xD3D_getrefreshrate(int monid)
 	return d3d->vblank;
 }
 
-static bool xD3D11_initvals(HWND ahwnd, int monid, int w_w, int w_h, int t_w, int t_h, int *freq, int mmulth, int mmultv, bool doalloc)
+static int xD3D11_initvals(HWND ahwnd, int monid, int w_w, int w_h, int t_w, int t_h, int *freq, int mmulth, int mmultv, bool doalloc)
 {
 	struct d3d11struct *d3d = &d3d11data[monid];
-	bool changed = false;
+	int changed = 0;
 
 	if (d3d->m_screenWidth != w_w || d3d->m_screenHeight != w_h) {
-		changed = true;
+		changed = 1;
 	}
+	int hz = getrefreshrate(monid, w_w, w_h);
+	if (isfs(d3d) > 0 && freq && hz != *freq) {
+		changed = -1;
+	}
+
 	d3d->m_screenWidth = w_w;
 	d3d->m_screenHeight = w_h;
 	d3d->dmultxh = mmulth;
@@ -3971,14 +3968,27 @@ static int xxD3D11_init2(HWND ahwnd, int monid, int w_w, int w_h, int t_w, int t
 		d3d->swapChainDesc.BufferCount, d3d->swapChainDesc.Flags, d3d->swapChainDesc.Format,
 		d3d->swapChainDesc.Scaling, d3d->swapChainDesc.SwapEffect, d3d->vblankintervals);
 
-	if (isfs(d3d) > 0)
+	if (isfs(d3d) > 0) {
 		D3D_resize(monid, 1);
+	}
 	D3D_resize(monid, 0);
 
 	ret = 1;
 
 	write_log(_T("D3D11 init end\n"));
 	return ret;
+}
+
+static void FreeOverlays(struct d3d11struct *d3d)
+{
+	struct d3doverlay *ov = d3d->extoverlays;
+	while (ov) {
+		struct d3doverlay *next = ov->next;
+		freesprite(&ov->s);
+		xfree(ov);
+		ov = next;
+	}
+	d3d->extoverlays = NULL;
 }
 
 static void freed3d(struct d3d11struct *d3d)
@@ -4063,6 +4073,7 @@ static void freed3d(struct d3d11struct *d3d)
 	FreeTextures(d3d);
 	FreeTexture2D(&d3d->sltexture, &d3d->sltexturerv);
 	FreeShaderTex(&d3d->lpPostTempTexture);
+	FreeOverlays(d3d);
 
 	for (int i = 0; i < MAX_SHADERS; i++) {
 		struct shaderdata11 *s = &d3d->shaders[i];
@@ -4209,8 +4220,21 @@ static const TCHAR *xD3D11_init(HWND ahwnd, int monid, int w_w, int w_h, int *fr
 		return _T("D3D11 INITIALIZATION ERROR");
 	} else {
 		struct d3d11struct *d3d = &d3d11data[monid];
-		if (xD3D11_initvals(ahwnd, monid, w_w, w_h, w_w, w_h, freq, mmulth, mmultv, true)) {
+		int r = xD3D11_initvals(ahwnd, monid, w_w, w_h, w_w, w_h, freq, mmulth, mmultv, true);
+		if (r > 0) {
 			d3d->fsresizedo = true;
+		} else if (r < 0) {
+			xD3D11_free(monid, true);
+			int v = xxD3D11_init(ahwnd, monid, w_w, w_h, freq, mmulth, mmultv);
+			if (v > 0) {
+				return NULL;
+			}
+			xD3D11_free(monid, true);
+			*errp = 1;
+			if (v <= 0) {
+				return _T("");
+			}
+			return _T("D3D11 INITIALIZATION ERROR (FREQ)");
 		} else {
 			*errp = -1;
 		}
@@ -4953,6 +4977,7 @@ static bool xD3D11_quit(struct d3d11struct *d3d)
 	if (d3d->m_swapChain && (!d3d->invalidmode || d3d->fsmode > 0)) {
 		d3d->m_swapChain->SetFullscreenState(FALSE, NULL);
 		FreeTextures(d3d);
+		FreeOverlays(d3d);
 	}
 	d3d->fsmode = 0;
 	d3d->invalidmode = true;
@@ -5254,8 +5279,16 @@ static void xD3D11_guimode(int monid, int guion)
 
 	d3d->reloadshaders = true;
 
-	if (isfullscreen() <= 0)
+	if (isfullscreen() <= 0) {
+		if (!guion && d3d->guimode) {
+			// GUI mode active but not fullscreen? Reset display.
+			xD3D11_free(d3d->num, true);
+			WIN32GFX_DisplayChangeRequested(1);
+		}
+		d3d->guimode = 0;
+		d3d->delayedfs = 0;
 		return;
+	}
 	
 	write_log(_T("fs guimode %d\n"), guion);
 	d3d->guimode = guion;

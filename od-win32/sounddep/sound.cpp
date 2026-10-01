@@ -12,11 +12,8 @@
 #include "sysconfig.h"
 #include "sysdeps.h"
 
-#include <math.h>
-
 #include "options.h"
 #include "audio.h"
-#include "memory.h"
 #include "events.h"
 #include "custom.h"
 #include "threaddep/thread.h"
@@ -32,18 +29,15 @@
 #ifdef FSUAE
 #else
 #include <windows.h>
-#include <mmsystem.h>
 #include <mmreg.h>
 #include <dsound.h>
 #include <ks.h>
 #include <ksmedia.h>
 #include <Audioclient.h>
-#include <audiopolicy.h>
 #include <Mmdeviceapi.h>
 #include <Functiondiscoverykeys_devpkey.h>
 #include <al.h>
 #include <alc.h>
-#include <ntverp.h>
 
 #include <portaudio.h>
 #endif
@@ -121,6 +115,7 @@ struct sound_dp
 	uae_u8 *pullbuffer;
 	int pullbufferlen;
 	int pullbuffermaxlen;
+	bool gotpullevent;
 
 #if USE_XAUDIO
 	// xaudio2
@@ -160,7 +155,11 @@ static int statuscnt;
 #define SND_MAX_BUFFER2 524288
 #define SND_MAX_BUFFER 65536
 
-uae_u16 paula_sndbuffer[SND_MAX_BUFFER];
+#if SOUND_MODE_NG
+uae_u16 paula_sndbuffer[SND_MAX_BUFFER * 2 + 8];
+#else
+uae_u16 paula_sndbuffer[SND_MAX_BUFFER * 2 + 1024];
+#endif
 uae_u16 *paula_sndbufpt;
 int paula_sndbufsize;
 int active_sound_stereo;
@@ -1343,7 +1342,7 @@ static int open_audio_wasapi (struct sound_data *sd, int index, int exclusive)
 	WAVEFORMATEX *pwfx = NULL;
 	WAVEFORMATEX *pwfx_saved = NULL;
 	WAVEFORMATEXTENSIBLE wavfmt;
-	int final, startchannel, chrounds;
+	int finalround, startchannel, chmask;
 	LPWSTR name = NULL;
 	int rn[4], rncnt;
 	AUDCLNT_SHAREMODE sharemode;
@@ -1356,7 +1355,7 @@ static int open_audio_wasapi (struct sound_data *sd, int index, int exclusive)
 	UINT32 DefaultDevicePeriod;
 
 	startchannel = sd->channels;
-	chrounds = 0;
+	chmask = 0;
 retry:
 	sd->devicetype = exclusive ? SOUND_DEVICE_WASAPI_EXCLUSIVE : SOUND_DEVICE_WASAPI;
 	s->wasapiexclusive = exclusive;
@@ -1426,7 +1425,7 @@ retry:
 		goto error;
 	}
 
-	final = 0;
+	finalround = 0;
 	rncnt = 0;
 	for (;;) {
 
@@ -1456,13 +1455,16 @@ retry:
 		CoTaskMemFree (pwfx);
 		pwfx = NULL;
 		hr = s->pAudioClient->IsFormatSupported (sharemode, &wavfmt.Format, &pwfx);
-		if (SUCCEEDED (hr) && hr != S_FALSE)
+
+		write_log(_T("WASAPI: IsFormatSupported(CH=%d,FREQ=%d,BITS=%d,%08x) (CH=%d,FREQ=%d,BITS=%d) %08X %d %d\n"),
+			wavfmt.Format.nChannels, wavfmt.Format.nSamplesPerSec, wavfmt.Format.wBitsPerSample, rn[rncnt],
+			pwfx ? pwfx->nChannels : -1, pwfx ? pwfx->nSamplesPerSec : -1, pwfx ? pwfx->wBitsPerSample : -1,
+			hr, rncnt, finalround);
+
+		if (SUCCEEDED (hr) && hr != S_FALSE) {
 			break;
-		write_log (_T("WASAPI: IsFormatSupported(%d,%08X,%d) (%d,%d) %08X\n"),
-			sd->channels, rn[rncnt], sd->freq,
-			pwfx ? pwfx->nChannels : -1, pwfx ? pwfx->nSamplesPerSec : -1,
-			hr);
-		if (final && SUCCEEDED (hr)) {
+		}
+		if (finalround && SUCCEEDED (hr)) {
 			if (pwfx_saved) {
 				sd->channels = pwfx_saved->nChannels;
 				sd->freq = pwfx_saved->nSamplesPerSec;
@@ -1478,8 +1480,9 @@ retry:
 				goto retry;
 			}
 		}
-		if (hr != AUDCLNT_E_UNSUPPORTED_FORMAT && hr != S_FALSE)
+		if (hr != AUDCLNT_E_UNSUPPORTED_FORMAT && hr != E_INVALIDARG && hr != S_FALSE) {
 			goto error;
+		}
 		if (hr == S_FALSE && pwfx_saved == NULL) {
 			pwfx_saved = pwfx;
 			pwfx = NULL;
@@ -1487,24 +1490,30 @@ retry:
 		rncnt++;
 		if (rn[rncnt])
 			continue;
-		if (final)
+		if (finalround)
 			goto error;
 		rncnt = 0;
-		bool skip = false;
+		bool chmasked = chmask == 15;
 		if (sd->channels == 1 || sd->channels == 2) {
 			sd->channels = 8;
+			chmask |= 1;
 		} else if (sd->channels == 4) {
 			sd->channels = 2;
+			chmask |= 2;
+		} else if (sd->channels == 6) {
+			sd->channels = 4;
+			chmask |= 4;
 		} else if (sd->channels == 8) {
 			sd->channels = 6;
+			chmask |= 8;
 		} else {
-			skip = true;
+			chmask = 15;
+			chmasked = true;
 		}
-		chrounds++;
-		if (chrounds < 10 && !skip && sd->channels != startchannel) {
+		if (!chmasked && sd->channels != startchannel) {
 			continue;
 		}
-		chrounds = 0;
+		chmask = 0;
 		if (sd->freq < 44100) {
 			sd->freq = 44100;
 			continue;
@@ -1513,7 +1522,7 @@ retry:
 			sd->freq = 48000;
 			continue;
 		}
-		final = 1;
+		finalround = 1;
 		if (pwfx_saved == NULL)
 			goto error;
 		sd->channels = pwfx_saved->nChannels;
@@ -1546,6 +1555,7 @@ retry:
 			write_log(_T("WASAPI: GetSharedModeEnginePeriod() DPIF=%u FPIF=%u MinPIF=%u MaxPIF=%d\n"),
 				DefaultPeriodInFrames, FundamentalPeriodInFrames, MinPeriodInFrames, MaxPeriodInFrames);
 		}
+		CoTaskMemFree(outwfx);
 	}
 
 
@@ -2451,6 +2461,8 @@ static bool finish_sound_buffer_wasapi_pull_do(struct sound_data *sd)
 	HRESULT hr;
 	BYTE *pData;
 
+	s->gotpullevent = false;
+
 	if (s->pullbufferlen <= 0)
 		return false;
 
@@ -2723,6 +2735,7 @@ static bool send_sound_do(struct sound_data *sd)
 		return finish_sound_buffer_wasapi_pull_do(sd);
 	} else if (type == SOUND_DEVICE_PA) {
 		struct sound_dp *s = sd->data;
+		s->gotpullevent = false;
 		ResetEvent(s->pullevent);
 		SetEvent(s->pullevent2);
 	}
@@ -2778,20 +2791,38 @@ HANDLE get_sound_event(void)
 	return 0;
 }
 
+static frame_time_t prevtime;
+
+void audio_got_pull_event(void)
+{
+	struct sound_dp *s = sdp->data;
+	if (s && !s->gotpullevent) {
+		frame_time_t cyc = read_processor_time();
+		//write_log("%lld\n", cyc - prevtime);
+		prevtime = cyc;
+		s->gotpullevent = true;
+	}
+}
+
 bool audio_is_event_frame_possible(int ms)
 {
 	int type = sdp->devicetype;
-	if (sdp->paused || sdp->deactive || sdp->reset)
+	if (sdp->paused || sdp->deactive || sdp->reset) {
 		return false;
+	}
 #ifdef FSUAE
 #else
 	if (type == SOUND_DEVICE_WASAPI || type == SOUND_DEVICE_WASAPI_EXCLUSIVE || type == SOUND_DEVICE_PA) {
+#if 0
+		return true;
+#else
 		struct sound_dp *s = sdp->data;
 		int bufsize = (int)((uae_u8*)paula_sndbufpt - (uae_u8*)paula_sndbuffer);
 		bufsize /= sdp->samplesize;
 		int todo = s->bufferFrameCount - bufsize;
 		int samplesperframe = (int)(sdp->obtainedfreq / vblank_hz);
 		return samplesperframe >= todo - samplesperframe;
+#endif
 	}
 #endif
 	return false;
@@ -2800,8 +2831,9 @@ bool audio_is_event_frame_possible(int ms)
 int audio_is_pull(void)
 {
 	int type = sdp->devicetype;
-	if (sdp->reset)
+	if (sdp->reset) {
 		return 0;
+	}
 #ifdef FSUAE
 #else
 	if (type == SOUND_DEVICE_WASAPI || type == SOUND_DEVICE_WASAPI_EXCLUSIVE || type == SOUND_DEVICE_PA) {
@@ -2819,8 +2851,9 @@ int audio_pull_buffer(void)
 	int cnt = 0;
 	int type = sdp->devicetype;
 	
-	if (sdp->paused || sdp->deactive || sdp->reset)
+	if (sdp->paused || sdp->deactive || sdp->reset) {
 		return 0;
+	}
 #ifdef FSUAE
 #else
 	if (type == SOUND_DEVICE_WASAPI || type == SOUND_DEVICE_WASAPI_EXCLUSIVE || type == SOUND_DEVICE_PA) {
@@ -2828,8 +2861,9 @@ int audio_pull_buffer(void)
 		if (s->pullbufferlen > 0) {
 			cnt++;
 			int size = (int)((uae_u8*)paula_sndbufpt - (uae_u8*)paula_sndbuffer);
-			if (size > sdp->sndbufsize * 2 / 3)
+			if (size > sdp->sndbufsize * 2 / 3) {
 				cnt++;
+			}
 		}
 	}
 #endif
@@ -2839,14 +2873,22 @@ int audio_pull_buffer(void)
 bool audio_is_pull_event(void)
 {
 	int type = sdp->devicetype;
-	if (sdp->paused || sdp->deactive || sdp->reset)
+	if (sdp->paused || sdp->deactive || sdp->reset) {
 		return false;
+	}
 #ifdef FSUAE
 #else
 	if (type == SOUND_DEVICE_WASAPI || type == SOUND_DEVICE_WASAPI_EXCLUSIVE || type == SOUND_DEVICE_PA) {
 		struct sound_dp *s = sdp->data;
 		if (s->pullmode) {
-			return WaitForSingleObject(s->pullevent, 0) == WAIT_OBJECT_0;
+			if (!s->gotpullevent) {
+				if (WaitForSingleObject(s->pullevent, 0) == WAIT_OBJECT_0) {
+					audio_got_pull_event();
+					return true;
+				}
+				return false;
+			}
+			return true;
 		}
 	}
 #endif
@@ -2860,9 +2902,11 @@ bool audio_finish_pull(void)
 		return false;
 #ifdef FSUAE
 #else
-	if (type != SOUND_DEVICE_WASAPI && type != SOUND_DEVICE_WASAPI_EXCLUSIVE && type != SOUND_DEVICE_PA)
+	if (type != SOUND_DEVICE_WASAPI && type != SOUND_DEVICE_WASAPI_EXCLUSIVE && type != SOUND_DEVICE_PA) {
 		return false;
-	if (audio_pull_buffer() && audio_is_pull_event()) {
+	}
+	int apb = audio_pull_buffer();
+	if (apb >= 2 || (apb = 1 && audio_is_pull_event())) {
 		return send_sound_do(sdp);
 	}
 #endif
@@ -2912,7 +2956,7 @@ static void handle_reset(void)
 void finish_sound_buffer (void)
 {
 	static unsigned long tframe;
-	int bufsize = (int)((uae_u8*)paula_sndbufpt - (uae_u8*)paula_sndbuffer);
+	int bufsize = addrdiff((uae_u8*)paula_sndbufpt, (uae_u8*)paula_sndbuffer);
 
 	if (sdp->reset) {
 		handle_reset();
@@ -2930,11 +2974,8 @@ void finish_sound_buffer (void)
 		else if (get_audio_nativechannels(active_sound_stereo) >= 6)
 			channelswap6((uae_s16*)paula_sndbuffer, bufsize / 2);
 	}
-#ifdef DRIVESOUND
-	driveclick_mix((uae_s16*)paula_sndbuffer, bufsize / 2, currprefs.dfxclickchannelmask);
-#endif
-	// must be after driveclick_mix
 	paula_sndbufpt = paula_sndbuffer;
+
 #ifdef AVIOUTPUT
 	if (avioutput_audio) {
 		if (AVIOutput_WriteAudio((uae_u8*)paula_sndbuffer, bufsize)) {

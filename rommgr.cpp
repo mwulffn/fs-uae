@@ -97,7 +97,7 @@ struct romdata *getromdatabypath (const TCHAR *path)
 	return NULL;
 }
 
-#define NEXT_ROM_ID 332
+#define NEXT_ROM_ID 341
 
 #if NEXT_ROM_ID >= MAX_ROMMGR_ROMS
 #error Increase MAX_ROMMGR_ROMS!
@@ -297,6 +297,17 @@ static struct romdata roms[] = {
 	ALTROM(307, 1, 2, 262144, ROMTYPE_ODD, 0xd7b72128, 0xdda6b034,0x0fe290df,0x9b6ae377,0x5ebad2b2,0x8baa158d)
 	{ _T("KS ROM v3.2.2 (A500/A600/A2000/A1000/CDTV)"), 3, 2, 47, 111, _T("A500\0"), 524288, 308, 0, 0, ROMTYPE_KICK, 0, 0, NULL,
 	0xe4458462, 0x7d5ebe68, 0x6b69d59a ,0x863cc77a, 0x36b2cd60, 0x359a9ed2 },
+
+	{ _T("KS ROM v3.2.3 (A1200)"), 3, 2, 47, 115, _T("A1200\0"), 524288, 333, 1, 0, ROMTYPE_KICK, 0, 0, NULL,
+	0xB18D3B67, 0x3f48ef0e, 0xca607855, 0xd7872796, 0xba886d78, 0x89451fad },
+	{ _T("KS ROM v3.2.3 (A3000)"), 3, 2, 47, 115, _T("A3000\0"), 524288, 334, 2, 0, ROMTYPE_KICK, 0, 0, NULL,
+	0x74C0B23F, 0x76222baa, 0x6d5654db, 0xba4a769b, 0xb86c1f39, 0x322d1c1c },
+	{ _T("KS ROM v3.2.3 (A4000)"), 3, 2, 47, 115, _T("A4000\0"), 524288, 335, 2 | 4, 0, ROMTYPE_KICK, 0, 0, NULL,
+	0xB6A4698E, 0x81902f41, 0xcbf6fc6b, 0x7d18c691, 0xa4ada624, 0x5d174bde },
+	{ _T("KS ROM v3.2.3 (A4000T)"), 3, 2, 47, 115, _T("A4000T\0"), 524288, 336, 2 | 4, 0, ROMTYPE_KICK, 0, 0, NULL,
+	0x588A5E6D, 0x8eeb6c2b, 0x282e589b, 0xd1589ebb, 0xa3a78a41, 0x722499ec },
+	{ _T("KS ROM v3.2.3 (A500/A600/A2000/A1000/CDTV)"), 3, 2, 47, 115, _T("A500\0"), 524288, 337, 0, 0, ROMTYPE_KICK, 0, 0, NULL,
+	0xE1F50B0B, 0xa9d51491, 0xd4b13566, 0x73621b61, 0xf789aed9, 0x79bd01be },
 
 	{ _T("KS ROM v3.2 (Walker)"), 3, 2, 43, 1, _T("WALKER\0"), 524288, 296, 2, 1, ROMTYPE_KICK, 0, 0, NULL,
 	0x261339f8, 0x7A9095F1, 0x107966F9, 0x0267DC4C, 0xB3C1972E, 0xFB4B78A8, NULL, NULL, 4 },
@@ -615,9 +626,9 @@ static struct romdata roms[] = {
 	0x3befa0c0, 0x4414673c, 0xa52f78a0, 0xae656824, 0xfd08b54f, 0xa1de237c, NULL, NULL },
 	ALTROMPN(166, 1, 1, 32768, ROMTYPE_ODD  | ROMTYPE_8BIT, NULL, 0xb64e3bbf, 0xd6f4fc81, 0x38325a78, 0x74ff1c15, 0x7c93f1a2, 0x444904ae)
 	ALTROMPN(166, 1, 2, 32768, ROMTYPE_EVEN | ROMTYPE_8BIT, NULL, 0x541b5988, 0x3546517b, 0x57cecd2f, 0x9fbfcd0c, 0xf26fdbbf, 0xfb009e3e)
-	{ _T("QuikPak 4060 XP v2.1"), 2, 1, 2, 1, _T("QUIKPAK\0"), 32768, 239, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
+	{ _T("QuikPak 4060 XP v2.1"), 2, 1, 2, 1, _T("QUIKPAK\0"), 32768, 239, 0, 0, ROMTYPE_CB_QUIKPAKXP, 0, 0, NULL,
 	0x3a8eb518, 0x902dd0ba, 0x56c2afd0, 0xbb425bf5, 0x264fbc62, 0x90ad2c4e, NULL, NULL },
-	{ _T("QuikPak 4060 XP v2.2"), 2, 2, 2, 2, _T("QUIKPAK\0"), 65536, 319, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
+	{ _T("QuikPak 4060 XP v2.2"), 2, 2, 2, 2, _T("QUIKPAK\0"), 65536, 319, 0, 0, ROMTYPE_CB_QUIKPAKXP, 0, 0, NULL,
 	0x47009144, 0x547fd232, 0xd774e872, 0x37a83d30, 0xeb06e3d6, 0xb88456c2, NULL, NULL },
 	{ _T("QuikPak 4060"), 0, 0, 0, 0, _T("QUIKPAK\0"), 32768, 320, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
 	0x2b12aa6d, 0x023cd8a5, 0x7f24a992, 0x12d64c93, 0x69da614a, 0x3f6d0932, NULL, NULL },
@@ -687,6 +698,10 @@ static struct romdata roms[] = {
 	0x42b570db, 0xf7d3f6bf,0x83ef13f9,0x438bf0d3,0x790d2f69,0xc26dcabe, NULL, NULL },
 	{ _T("AlfaPower v8.3"), 8, 3, 8, 3, _T("ALFAPOWERPLUS\0"), 32768, 118, 0, 0, ROMTYPE_ALFAPLUS, 0, 0, NULL,
 	0xe8201bad, 0xdefea015,0x596fce32,0x11e84397,0x23046a31,0x5a7726dc, NULL, NULL },
+	{ _T("Masoboshi MC-702 v2.204"), 2, 204, 2, 204, _T("MASOBOSHI\0"), 32768, 338, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
+	0x0748c752, 0x6795c299,0x47d2d665,0xa6f698b0,0xc033752c,0x27d0a5b1, NULL, NULL },
+	{ _T("Masoboshi MC-702 v2.202"), 2, 202, 2, 202, _T("MASOBOSHI\0"), 32768, 339, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
+	0x07746315, 0xba388102,0xd070538e,0x7a8c1555,0x6830c653,0x130b902c, NULL, NULL },
 	{ _T("Masoboshi MC-702 v2.201"), 2, 201, 2, 201, _T("MASOBOSHI\0"), 32768, 120, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
 	0xcd99b98a, 0x3897e46a,0x66d5833f,0x849b8e81,0x30acb3cb,0x319a2fa0, NULL, NULL },
 	{ _T("Masoboshi MC-702 v2.197"), 2, 197, 2, 197, _T("MASOBOSHI\0"), 32768, 316, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
@@ -783,8 +798,10 @@ static struct romdata roms[] = {
 	0x086e2716b, 0x075b50cb,0x166e00ac,0x4016ef7f,0x02532e86,0xe73b7711, NULL, NULL },
 	{ _T("Pacific Peripherals Overdrive v2.0"), 2, 0, 2, 0, _T("OVERDRIVE\0"), 8192, 247, 0, 0, ROMTYPE_OVERDRIVE, 0, 0, NULL,
 	0xebe42aa6, 0xdff761c2,0x429d0d26,0x2151d831,0x12746f83,0x3b8d36f0, NULL, NULL },
-	{ _T("Archos Overdrive HD"), 0, 0, 0, 0, _T("ARCHOSHD\0"), 32768, 250, 0, 0, ROMTYPE_ARCHOSHD, 0, 0, NULL,
+	{ _T("Archos Overdrive HD v5.0"), 5, 0, 5, 0, _T("ARCHOSHD\0"), 32768, 250, 0, 0, ROMTYPE_ARCHOSHD, 0, 0, NULL,
 	0x30c0e3f9, 0x90014e97,0x700333a7,0x931b382f,0xe672b6e4,0x4b7b8acc, NULL, NULL },
+	{ _T("Archos Overdrive HD v3.0"), 3, 0, 3, 0, _T("ARCHOSHD\0"), 32768, 332, 0, 0, ROMTYPE_ARCHOSHD, 0, 0, NULL,
+	0x68c6dc4b, 0x67a5df20,0xf6d893a3,0x0ff130b4,0xe4b9aaab,0xf4be5e90, NULL, NULL },
 	{ _T("Trumpcard 500AT v1.1"), 1, 1, 1, 1, _T("TRUMPCARDAT\0"), 16384, 251, 0, 0, ROMTYPE_IVST500AT, 0, 0, NULL,
 	0xb6467cb8, 0xbc1cd85f,0x16011691,0x32a2a8d6, 0x2ee38666,0x520d5cf1, NULL, NULL },
 	{ _T("Trumpcard 500AT v1.2"), 1, 2, 1, 2, _T("TRUMPCARDAT\0"), 16384, 252, 0, 0, ROMTYPE_IVST500AT, 0, 0, NULL,
@@ -805,6 +822,8 @@ static struct romdata roms[] = {
 	0x667c7616, 0x0eb1cb38,0x3133f070,0x7cb57944,0xc516f236,0xbad4d4f6, NULL, NULL },
 	{ _T("Combitec HD20A/HD40A"), 0, 0, 0, 0, _T("HD20A\0"), 32768, 267, 0, 0, ROMTYPE_HD20A, 0, 0, NULL,
 	0x0e7391b4, 0x7c365adb,0x3496c479,0x5e94a166,0xd834254a,0x6112d91c, NULL, NULL },
+	{ _T("Buddha v103.17"), 103, 17, 103, 17, _T("BUDDHA\0"), 32768, 340, 0, 0, ROMTYPE_BUDDHA, 0, 0, NULL,
+	0x2b7b24e0, 0xec17a589,0x62c373a2,0x892090ec,0x9b1722d2,0xc326d631, NULL, NULL },
 
 	{ _T("CyberStorm MK I 68060 Support"), 0, 0, 0, 0, _T("CSMKI\0"), 32768, 95, 0, 0, ROMTYPE_CB_CSMK1, 0, 0, NULL,
 	0x33a8ff3a, 0x8f4bdda0,0x10338a48,0x51e4a2fb,0xb4aa6d6e,0x202fe98e, NULL, NULL },

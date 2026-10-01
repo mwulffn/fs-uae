@@ -9,9 +9,6 @@
 
 #include "sysconfig.h"
 
-#include <stdlib.h>
-#include <stdarg.h>
-
 #ifdef FSUAE
 #else
 
@@ -29,13 +26,9 @@
 #include "resource.h"
 
 #include "options.h"
-#include "audio.h"
 #include "uae.h"
-#include "memory.h"
 #include "custom.h"
 #include "events.h"
-#include "newcpu.h"
-#include "traps.h"
 #include "xwin.h"
 #include "keyboard.h"
 #include "drawing.h"
@@ -1888,7 +1881,6 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 
 	updatewinfsmode(mon->monitor_id, &currprefs);
 #ifdef PICASSO96
-	mon->currentmode.vsync = 0;
 	if (mon->screen_is_picasso) {
 		float mx = 1.0;
 		float my = 1.0;
@@ -1911,14 +1903,10 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 		} else {
 			currprefs.gfx_apmode[1].gfx_refreshrate = currprefs.win32_rtgvblankrate;
 		}
-		if (currprefs.gfx_apmode[1].gfx_vsync)
-			mon->currentmode.vsync = 1 + currprefs.gfx_apmode[1].gfx_vsyncmode;
 	} else {
 #endif
 		mon->currentmode.current_width = currprefs.gfx_monitor[mon->monitor_id].gfx_size.width;
 		mon->currentmode.current_height = currprefs.gfx_monitor[mon->monitor_id].gfx_size.height;
-		if (currprefs.gfx_apmode[0].gfx_vsync)
-			mon->currentmode.vsync = 1 + currprefs.gfx_apmode[0].gfx_vsyncmode;
 #ifdef PICASSO96
 	}
 #endif
@@ -2300,6 +2288,7 @@ int check_prefs_changed_gfx(void)
 	c |= currprefs.gfx_scandoubler != changed_prefs.gfx_scandoubler ? (2 | 8) : 0;
 	c |= currprefs.gfx_threebitcolors != changed_prefs.gfx_threebitcolors ? (256) : 0;
 	c |= currprefs.gfx_grayscale != changed_prefs.gfx_grayscale ? (512) : 0;
+	c |= currprefs.gfx_ntscpixels != changed_prefs.gfx_ntscpixels ? (512) : 0;
 	c |= currprefs.gfx_monitorblankdelay != changed_prefs.gfx_monitorblankdelay ? (512) : 0;
 
 	c |= currprefs.gfx_display_sections != changed_prefs.gfx_display_sections ? (512) : 0;
@@ -2403,6 +2392,7 @@ int check_prefs_changed_gfx(void)
 		currprefs.gfx_scandoubler = changed_prefs.gfx_scandoubler;
 		currprefs.gfx_threebitcolors = changed_prefs.gfx_threebitcolors;
 		currprefs.gfx_grayscale = changed_prefs.gfx_grayscale;
+		currprefs.gfx_ntscpixels = changed_prefs.gfx_ntscpixels;
 		currprefs.gfx_monitorblankdelay = changed_prefs.gfx_monitorblankdelay;
 
 		currprefs.gfx_display_sections = changed_prefs.gfx_display_sections;
@@ -2449,9 +2439,6 @@ int check_prefs_changed_gfx(void)
 				} else {
 					c |= 16;
 					reset_drawing();
-#if 0
-					S2X_reset(mon->monitor_id);
-#endif
 				}
 			}
 			if (c & 1024) {
@@ -3674,12 +3661,12 @@ static int create_windows(struct AmigaMonitor *mon)
 #endif
 				x = r.left;
 				y = r.top;
-				SetWindowPos(mon->hMainWnd, HWND_TOP, x, y, w + mon->window_extra_width, h + mon->window_extra_height,
+				xSetWindowPos(mon->hMainWnd, HWND_TOP, x, y, w + mon->window_extra_width, h + mon->window_extra_height,
 					SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING | SWP_NOZORDER);
 				x = gap;
 				y = gap;
 			}
-			SetWindowPos(mon->hAmigaWnd, HWND_TOP, x, y, w, h,
+			xSetWindowPos(mon->hAmigaWnd, HWND_TOP, x, y, w, h,
 				SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING | SWP_NOZORDER);
 			mon->in_sizemove--;
 			mon->dpi = dpi;

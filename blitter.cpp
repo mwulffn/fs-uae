@@ -14,7 +14,6 @@
 #include "sysdeps.h"
 
 #include "options.h"
-#include "uae.h"
 #include "memory.h"
 #include "custom.h"
 #include "events.h"
@@ -2505,6 +2504,8 @@ uae_u8 *restore_blitter_new(uae_u8 *src)
 	if (blt_statefile_type < 2) {
 		tmp = 0;
 		//blt_info.blit_finald = 0;
+		restore_u8();
+		restore_u8();
 	} else {
 		shifter[0] = (tmp & 1) != 0;
 		shifter[1] = (tmp & 2) != 0;
@@ -2588,7 +2589,6 @@ uae_u8 *restore_blitter_new(uae_u8 *src)
 		shifter_d_armed = (tmp & 128) != 0;
 		tmp = restore_u8();
 		shifter_d_aga = tmp & 7;
-		tmp = restore_u32();
 		blt_info.finishcycle_dmacon = restore_u64();
 		blt_info.finishcycle_copper = restore_u64();
 		blt_info.blt_mod_cycles[0] = restore_u64();

@@ -33,8 +33,6 @@
 #define KBHOOK 0
 
 #include <stdlib.h>
-#include <stdarg.h>
-#include <signal.h>
 
 #include "sysconfig.h"
 
@@ -44,19 +42,13 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
-#include <commdlg.h>
 #include <shellapi.h>
-#include <zmouse.h>
 #include <dbt.h>
-#include <math.h>
-#include <mmsystem.h>
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <dbghelp.h>
-#include <float.h>
 #include <WtsApi32.h>
-#include <Avrt.h>
 #include <Cfgmgr32.h>
 #include <shellscalingapi.h>
 #include <dinput.h>
@@ -76,24 +68,19 @@
 #include "memory.h"
 #include "rommgr.h"
 #include "custom.h"
-#include "events.h"
 #include "newcpu.h"
-#include "traps.h"
 #include "xwin.h"
 #include "keyboard.h"
 #include "inputdevice.h"
-#include "keybuf.h"
 #include "drawing.h"
 #include "render.h"
 #include "picasso96_win.h"
-#include "bsdsocket.h"
 #include "win32.h"
 #include "win32gfx.h"
 #include "registry.h"
 #include "win32gui.h"
 #include "autoconf.h"
 #include "gui.h"
-#include "uae/mman.h"
 #include "avioutput.h"
 #include "ahidsound.h"
 #include "ahidsound_new.h"
@@ -107,8 +94,6 @@
 #include "lcd.h"
 #include "uaeipc.h"
 #include "ar.h"
-#include "akiko.h"
-#include "cdtv.h"
 #include "direct3d.h"
 #include "clipboard_win32.h"
 #include "blkdev.h"
@@ -120,7 +105,6 @@
 #include "rp.h"
 #include "cloanto/RetroPlatformIPC.h"
 #endif
-#include "uae/ppc.h"
 #include "fsdb.h"
 #include "uae/time.h"
 #include "specialmonitors.h"
@@ -276,6 +260,14 @@ typedef HRESULT(CALLBACK* GETDPIFORMONITOR)(HMONITOR, MONITOR_DPI_TYPE, UINT*, U
 static GETDPIFORMONITOR pGetDpiForMonitor;
 typedef UINT(CALLBACK* GETDPIFORWINDOW)(HWND);
 static GETDPIFORWINDOW pGetDpiForWindow;
+
+BOOL xSetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
+{
+	if (rp_isactive()) {
+		uFlags |= SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOZORDER;
+	}
+	return SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
+}
 
 int getdpiformonitor(HMONITOR mon)
 {
@@ -509,18 +501,20 @@ static int sleep_millis2 (int ms, bool main)
 	HANDLE sound_event = get_sound_event();
 	bool wasneg = ms < 0;
 	bool pullcheck = false;
+
 	int ret = 0;
 
 	if (ms < 0)
 		ms = -ms;
 	if (main) {
 		if (sound_event) {
-			bool pullcheck = audio_is_event_frame_possible(ms);
+			pullcheck = audio_is_event_frame_possible(ms);
 			if (pullcheck) {
 				if (WaitForSingleObject(sound_event, 0) == WAIT_OBJECT_0) {
 					if (wasneg) {
 						write_log(_T("efw %d imm abort\n"), ms);
 					}
+					audio_got_pull_event();
 					return -1;
 				}
 			}
@@ -562,10 +556,13 @@ static int sleep_millis2 (int ms, bool main)
 			evt[c++] = sound_event;
 		}
 		DWORD status = WaitForMultipleObjects(c, evt, FALSE, ms);
-		if (sound_event_cnt >= 0 && status == WAIT_OBJECT_0 + sound_event_cnt)
+		if (sound_event_cnt >= 0 && status == WAIT_OBJECT_0 + sound_event_cnt) {
 			ret = -1;
-		if (vblank_event_cnt >= 0 && status == WAIT_OBJECT_0 + vblank_event_cnt)
+			audio_got_pull_event();
+		}
+		if (vblank_event_cnt >= 0 && status == WAIT_OBJECT_0 + vblank_event_cnt) {
 			ret = -1;
+		}
 		if (wasneg) {
 			if (sound_event_cnt >= 0 && status == WAIT_OBJECT_0 + sound_event_cnt) {
 				write_log(_T("efw %d delayed abort\n"), ms);
@@ -768,6 +765,9 @@ bool setpaused(int priority)
 	//write_log (_T("pause %d (%d)\n"), priority, pause_emulation);
 	if (pause_emulation > priority)
 		return false;
+	if (!pause_emulation) {
+		wait_keyrelease();
+	}
 	pause_emulation = priority;
 	devices_pause();
 	setsoundpaused ();
@@ -2103,7 +2103,7 @@ static void CustomResizeMouseMove(AmigaMonitor *mon, HWND hWindow)
 			r2.right = x + w;
 			r2.bottom = y + h;
 			doresizing(mon, nSizingEdge, &r2);
-			SetWindowPos(hWindow, NULL, r2.left, r2.top, r2.right - r2.left, r2.bottom - r2.top, 0);
+			xSetWindowPos(hWindow, NULL, r2.left, r2.top, r2.right - r2.left, r2.bottom - r2.top, 0);
 		}
 		ptResizePos.x = pt.x;
 		ptResizePos.y = pt.y;
@@ -2115,7 +2115,7 @@ static void EndCustomResize(HWND hWindow, BOOL bCanceled)
 	inresizing = false;
 	ReleaseCapture();
 	if (bCanceled) {
-		SetWindowPos(hWindow, NULL, rcResizeStartWindowRect.left, rcResizeStartWindowRect.top,
+		xSetWindowPos(hWindow, NULL, rcResizeStartWindowRect.left, rcResizeStartWindowRect.top,
 			rcResizeStartWindowRect.right - rcResizeStartWindowRect.left, rcResizeStartWindowRect.bottom - rcResizeStartWindowRect.top,
 			SWP_NOZORDER | SWP_NOACTIVATE);
 	}
@@ -2814,7 +2814,7 @@ static LRESULT CALLBACK AmigaWindowProc(HWND hWnd, UINT message, WPARAM wParam, 
 			{
 				LPNMMOUSE lpnm = (LPNMMOUSE)lParam;
 				int num = (int)lpnm->dwItemSpec;
-				int df0 = 9;
+				int df0 = 11;
 				if (num >= df0 && num <= df0 + 3) { // DF0-DF3
 					num -= df0;
 					if (nm->code == NM_RCLICK) {
@@ -2823,12 +2823,13 @@ static LRESULT CALLBACK AmigaWindowProc(HWND hWnd, UINT message, WPARAM wParam, 
 						DiskSelection(hWnd, IDC_DF0 + num, 0, &changed_prefs, NULL, NULL);
 						disk_insert(num, changed_prefs.floppyslots[num].df);
 					}
-				} else if (num == 5) {
-					if (nm->code == NM_CLICK) // POWER
+				} else if (num == 6) { // POWER
+					if (nm->code == NM_CLICK) {
 						inputdevice_add_inputcode(AKS_ENTERGUI, 1, NULL);
-					else
+					} else {
 						uae_reset(0, 1);
-				} else if (num == 4) {
+					}
+				} else if (num == 4) { // FPS
 					if (pause_emulation) {
 						resumepaused(9);
 						setmouseactive(mon->monitor_id, 1);
@@ -3037,7 +3038,7 @@ static LRESULT CALLBACK MainWindowProc (HWND hWnd, UINT message, WPARAM wParam, 
 	{
 		if (isfullscreen() == 0) {
 			RECT* const r = (RECT*)lParam;
-			SetWindowPos(hWnd, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
+			xSetWindowPos(hWnd, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
 			return 0;
 		}
 		break;
@@ -3454,8 +3455,10 @@ void remove_brkhandler (void)
 
 static void WIN32_UnregisterClasses (void)
 {
-	systray (hHiddenWnd, TRUE);
-	DestroyWindow (hHiddenWnd);
+	if (hHiddenWnd) {
+		systray (hHiddenWnd, TRUE);
+		DestroyWindow (hHiddenWnd);
+	}
 }
 
 static int WIN32_RegisterClasses (void)
@@ -3879,7 +3882,7 @@ void logging_init (void)
 		}
 	}
 
-	write_log (_T("\n%s (%d.%d.%d %s%s[%d])"), VersionStr,
+	write_log (_T("%s (%d.%d.%d %s%s[%d])"), VersionStr,
 		osVersion.dwMajorVersion, osVersion.dwMinorVersion, osVersion.dwBuildNumber, osVersion.szCSDVersion,
 		_tcslen (osVersion.szCSDVersion) > 0 ? _T(" ") : _T(""), os_admin);
 	write_log (_T(" %d-bit %X.%X.%X %d %s %d"),
@@ -3887,7 +3890,7 @@ void logging_init (void)
 		SystemInfo.wProcessorArchitecture, SystemInfo.wProcessorLevel, SystemInfo.wProcessorRevision,
 		SystemInfo.dwNumberOfProcessors, filedate, os_touch);
 	write_log (_T("\n(c) 1995-2001 Bernd Schmidt   - Core UAE concept and implementation.")
-		_T("\n(c) 1998-2025 Toni Wilen      - Win32 port, core code updates.")
+		_T("\n(c) 1998-2026 Toni Wilen      - Win32 port, core code updates.")
 		_T("\n(c) 1996-2001 Brian King      - Win32 port, Picasso96 RTG, and GUI.")
 		_T("\n(c) 1996-1999 Mathias Ortmann - Win32 port and bsdsocket support.")
 		_T("\n(c) 2000-2001 Bernd Meyer     - JIT engine.")
@@ -6604,6 +6607,7 @@ extern int logitech_lcd;
 extern uae_s64 max_avi_size;
 extern int floppy_writemode;
 extern int cia_timer_hack_adjust;
+extern int slow_cpu_access;
 
 extern DWORD_PTR cpu_affinity, cpu_paffinity;
 static DWORD_PTR original_affinity = -1;
@@ -6931,7 +6935,11 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("forcerdtsc"))) {
-		uae_time_use_rdtsc(true);
+		uae_time_use_mode(1);
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("forcetickcount"))) {
+		uae_time_use_mode(2);
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("ddsoftwarecolorkey"))) {
@@ -7253,6 +7261,11 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		cia_timer_hack_adjust = getval(np);
 		return 2;
 	}
+	if (!_tcscmp(arg, _T("slow_cpu_access"))) {
+		slow_cpu_access = getval(np);
+		return 2;
+	}
+
 
 #endif
 	return 0;
@@ -7479,6 +7492,7 @@ static int PASCAL WinMain2 (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR
 	HANDLE hMutex;
 	TCHAR **argv = NULL, **argv2 = NULL, **argv3;
 	int argc, i;
+	int versiononly = 0;
 
 	if (!osdetect ())
 		return 0;
@@ -7500,101 +7514,106 @@ static int PASCAL WinMain2 (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR
 	argv2 = WIN32_InitRegistry (argv);
 
 	if (regqueryint (NULL, _T("log_disabled"), &i)) {
-		if (i)
+		if (i) {
 			logging_disabled = true;
+		}
 	}
 
 	getstartpaths ();
 	makeverstr (VersionStr);
 
 	logging_init ();
-	if (_tcslen (lpCmdLine) > 0)
+
+	if (_tcslen (lpCmdLine) > 0) {
 		write_log (_T("'%s'\n"), lpCmdLine);
+	}
 	if (argv3 && argv3[0]) {
 		write_log (_T("params:\n"));
-		for (i = 0; argv3[i]; i++)
+		for (i = 0; argv3[i]; i++) {
 			write_log (_T("%d: '%s'\n"), i + 1, argv3[i]);
+			if (!_tcsicmp(argv3[i], _T("-version"))) {
+				versiononly = 1;
+			}
+			if (!_tcsicmp(argv3[i], _T("-bootlogonly"))) {
+				versiononly = -1;
+			}
+		}
 	}
 	if (argv2) {
 		write_log (_T("extra params:\n"));
-		for (i = 0; argv2[i]; i++)
+		for (i = 0; argv2[i]; i++) {
 			write_log (_T("%d: '%s'\n"), i + 1, argv2[i]);
+		}
 	}
-	if (preinit_shm () && WIN32_RegisterClasses () && WIN32_InitLibraries ()) {
-		DWORD i;
+
+	if (versiononly <= 0) {
+		if (preinit_shm () && WIN32_RegisterClasses () && WIN32_InitLibraries ()) {
+			DWORD i;
 
 #ifdef RETROPLATFORM
-		if (rp_param != NULL) {
-			if (FAILED (rp_init ()))
-				goto end;
-		}
+			if (rp_param != NULL) {
+				if (FAILED (rp_init ()))
+					goto end;
+			}
 #endif
-		WIN32_HandleRegistryStuff ();
-		write_log (_T("Enumerating display devices.. \n"));
-		enumeratedisplays ();
-		write_log (_T("Sorting devices and modes..\n"));
-		sortdisplays ();
-		enumerate_sound_devices ();
-		for (i = 0; i < MAX_SOUND_DEVICES && sound_devices[i]; i++) {
-			int type = sound_devices[i]->type;
-			write_log (_T("%d:%s: %s\n"), i, type == SOUND_DEVICE_XAUDIO2 ? _T("XA") : (type == SOUND_DEVICE_DS ? _T("DS") : (type == SOUND_DEVICE_AL ? _T("AL") : (type == SOUND_DEVICE_WASAPI ? _T("WA") : (type == SOUND_DEVICE_WASAPI_EXCLUSIVE ? _T("WX") : _T("PA"))))), sound_devices[i]->name);
-		}
-		write_log (_T("Enumerating recording devices:\n"));
-		for (i = 0; i < MAX_SOUND_DEVICES && record_devices[i]; i++) {
-			int type = record_devices[i]->type;
-			write_log (_T("%d:%s: %s\n"), i,  type == SOUND_DEVICE_XAUDIO2 ? _T("XA") : (type == SOUND_DEVICE_DS ? _T("DS") : (type == SOUND_DEVICE_AL ? _T("AL") : (type == SOUND_DEVICE_WASAPI ? _T("WA") : (type == SOUND_DEVICE_WASAPI_EXCLUSIVE ? _T("WX") : _T("PA"))))), record_devices[i]->name);
-		}
-		write_log (_T("done\n"));
-#if 0
-		DEVMODE devmode;
-		memset (&devmode, 0, sizeof (devmode));
-		devmode.dmSize = sizeof (DEVMODE);
-		if (EnumDisplaySettings (NULL, ENUM_CURRENT_SETTINGS, &devmode)) {
-			default_freq = devmode.dmDisplayFrequency;
-			if (default_freq >= 70)
-				default_freq = 70;
-			else
-				default_freq = 60;
-		}
-#endif
-		WIN32_InitLang ();
-		unicode_init ();
-		can_D3D11(false);
-		if (betamessage ()) {
-			keyboard_settrans ();
+			WIN32_HandleRegistryStuff ();
+			write_log (_T("Enumerating display devices.. \n"));
+			enumeratedisplays ();
+			write_log (_T("Sorting devices and modes..\n"));
+			sortdisplays ();
+			enumerate_sound_devices ();
+			for (i = 0; i < MAX_SOUND_DEVICES && sound_devices[i]; i++) {
+				int type = sound_devices[i]->type;
+				write_log (_T("%d:%s: %s\n"), i, type == SOUND_DEVICE_XAUDIO2 ? _T("XA") : (type == SOUND_DEVICE_DS ? _T("DS") : (type == SOUND_DEVICE_AL ? _T("AL") : (type == SOUND_DEVICE_WASAPI ? _T("WA") : (type == SOUND_DEVICE_WASAPI_EXCLUSIVE ? _T("WX") : _T("PA"))))), sound_devices[i]->name);
+			}
+			write_log (_T("Enumerating recording devices:\n"));
+			for (i = 0; i < MAX_SOUND_DEVICES && record_devices[i]; i++) {
+				int type = record_devices[i]->type;
+				write_log (_T("%d:%s: %s\n"), i,  type == SOUND_DEVICE_XAUDIO2 ? _T("XA") : (type == SOUND_DEVICE_DS ? _T("DS") : (type == SOUND_DEVICE_AL ? _T("AL") : (type == SOUND_DEVICE_WASAPI ? _T("WA") : (type == SOUND_DEVICE_WASAPI_EXCLUSIVE ? _T("WX") : _T("PA"))))), record_devices[i]->name);
+			}
+			write_log (_T("done\n"));
+			WIN32_InitLang ();
+			unicode_init ();
+			can_D3D11(false);
+			if (betamessage ()) {
+				keyboard_settrans ();
 #ifdef CATWEASEL
-			catweasel_init ();
+				catweasel_init ();
 #endif
 #ifdef PARALLEL_PORT
-			paraport_mask = paraport_init ();
+				paraport_mask = paraport_init ();
 #endif
-			globalipc = createIPC (_T("WinUAE"), 0);
-			shmem_serial_create();
-			enumserialports ();
-			enummidiports ();
-			real_main (argc, argv);
+				globalipc = createIPC (_T("WinUAE"), 0);
+				shmem_serial_create();
+				enumserialports ();
+				enummidiports ();
+				if (!versiononly) {
+					real_main (argc, argv);
+				}
+			}
 		}
-	}
-end:
-	closeIPC (globalipc);
-	shmem_serial_delete();
-	write_disk_history ();
-	target_save_debugger_config();
-	timeend ();
+	end:
+		closeIPC (globalipc);
+		shmem_serial_delete();
+		write_disk_history ();
+		target_save_debugger_config();
+		timeend ();
 #ifdef AVIOUTPUT
-	AVIOutput_Release ();
+		AVIOutput_Release ();
 #endif
 #ifdef AHI
-	ahi_close_sound ();
+		ahi_close_sound ();
 #endif
 #ifdef PARALLEL_PORT
-	paraport_free ();
-	closeprinter ();
+		paraport_free ();
+		closeprinter ();
 #endif
-	create_afnewdir (1);
+		create_afnewdir (1);
 #ifdef RETROPLATFORM
-	rp_free ();
+		rp_free ();
 #endif
+	}
+
 	CloseHandle (hMutex);
 	WIN32_CleanupLibraries ();
 	WIN32_UnregisterClasses ();

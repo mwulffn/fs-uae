@@ -2,9 +2,6 @@
 #include "sysconfig.h"
 #include "sysdeps.h"
 
-#include <stdlib.h>
-#include <stdarg.h>
-
 #ifdef FSUAE
 #else
 #include <windows.h>
@@ -25,9 +22,6 @@ typedef unsigned int UINT;
 #include "keybuf.h"
 #include "memory.h"
 #include "autoconf.h"
-
-#include "threaddep/thread.h"
-#include "memory.h"
 #include "native2amiga_api.h"
 
 #ifdef FSUAE

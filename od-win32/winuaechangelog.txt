@@ -1,4 +1,209 @@
 
+6.1.0:
+
+Development:
+
+- Copper emulation rewritten to match lower level logic (Relatively simple 3 stage state machine based on Alice schematics). This is needed to support nasty VHPOSW write special cases. Emulation code is also now much shorter and simpler, all COPxJMP special case hacks are gone.
+- Unified native and programmed mode display positioning. For example positioning in native PAL and programmed mode that sets matching PAL parameters is identical now. This also includes overscan setting, previously programmed modes ignored TV mode settings.
+- Display positioning now only uses Agnus/Alice generated sync and optionally using blank signals (like real displays work), this enables correct positioning even if mode is very strange. Previously positioning used hardwired PAL/NTSC sync/blank positions or programmed mode sync/blank register contents, this mode can only work mode is not too weird.
+- Display height is from vertical blanking end to start. If vertical blanking is completely missing (It isn't required in real world, only need black in VB area to not confuse display's black level calibration), whole vertical (minus few lines after vsync start) are shown. Horizontal width uses horizontal blanking (or if missing, from hsync + few CCKs to start of next hsync).
+- Chipset panel Monitor Sync Source option renamed to Monitor sync / positioning mode. First 3 options select blanking based positioning/size mode (default, same options as in previous versions), new 3 options select sync based positioning/size mode. This is basically how CRTs originally worked, later models had digital control logic and could also use blanking for positioning.
+- Extreme overscan mode now equals selecting sync based positioning/size mode.
+- Lines that TV overscan setting blanked also skipped bitplane/sprite collision detection.
+
+
+Unified native/programmed mode can break existing configurations that have manually adjusted programmed modes. Only native PAL/NTSC mode normal overscan+ or smaller filter configuration positioning and size will be kept compatible with old config files. Autoscale and other similar filters should now work much better when mode is very weird.
+
+6.0.3:
+
+Beta 2:
+
+- Fast drawing mode had unreliable long/short field detection in some programmed interlaced modes.
+
+Beta 1:
+
+6.0.x fixes:
+
+- Fixed DDFSTRT being modified while previous value matched condition, it was not correctly updated when DDFSTRT/STOP logic was rewritten (6020b6). (Display corruption in Back in Bizness / 2000AD, Sly Spy, probably others too)
+- Bottom right OCS Denise blanking bug was not visible in Overscan+ mode.
+- In some situations fast mode drawing mode generated VB interrupt 1 line too early and also could toggle between correct and incorrect in interlaced modes.
+- HIGHGFX SuperHires + interlace screen mode was broken when screen was dragged down 1 more or more pixels in fast drawing modes.
+- Display drawing could overflow output buffer by drawing 1 pixel more than fits in the buffer and causing random crashes.
+- Switch from RTG to native + fast mode: garbage was randomly possible in right border.
+- GUI operations that update the display in realtime (for example Display panel brightness/etc adjustments) caused hang if done before starting. Operations waited for free Denise drawing queue slot without running Denise drawing thread.
+
+Other:
+
+- It is now possible to connect multiple emulated CD drives and use multiple CD images simultaneously. Internally support was mostly done years and years ago but it was never finished.
+- Directory filesystem ACTION_CHANGE_MODE responded with ERROR_OBJECT_IN_USE if it was used to change already shared mode file handle or file lock to shared mode.
+- Plain HDF with virtual RDB (Plain HDF mounted to emulated HD controller) didn't allow access to last 256k of HDF (wrong virtual HDF offset calculation). Bug probably since virtual RDB support was added. Also return write protected error if trying to write to virtual RDB. Previously writes to virtual RDB were ignored completely.
+- If RAM panel memory range is adjusted that is also used for accelerator board RAM: adjust also accelerator RAM size. Expansion panel accelerator RAM to RAM panel copy was already implemented.
+- Integer scaling now uses correct aspect ratio when "VGA mode resolution autoswitch" is active.
+- If standard output is redirected ("winuae.exe >path/somewhile.txt"), all logging will get redirected. Log console is disabled if redirection is used, redirected output is in utf-8 format.
+- -version command line only outputs winuaebootlog.txt "header" lines and then exits.
+- If 1G of 32-bit chip ram is enabled: always use UAE Z3 mapping. Hardware info panel before starting emulation now shows correct Z3 board start.
+- Internal sound buffer overflowed if WASAPI sound buffer was set to max and channel amount was 6 or more.
+- Original X-Surf IDE ports emulated.
+- Added Buddha v103.17 ROM to ROM scanner.
+
+6.0.2:
+
+Beta 12:
+
+- Only some filter numeric edit boxes adjusted the sliders correctly.
+- Magic mouse positioning had offset in some filter modes (v6).
+- uaehf.device thread syncronization fixed when device is opened when current opener count is zero and closed when opener count becomes zero. Happened only if device was repeatedly opened and closed quickly. Probably has existed since uaehf.device was introduced.
+
+Beta 11:
+
+- Genlock mode in some ECS/AGA configurations crashed at boot.
+- Reverted beta 8 statefile expansion update, full expansion restore is not yet complete enough. Old method requires config file that matches statefile expansions but at least it works if they match.
+
+Beta 10:
+
+- Filter panel new numeric text controls had wrong min and max values for most filter modes.
+- When pausing emulation, release any pressed Amiga keys before pausing because key events are ignored when paused. Fixes stuck left ALT when using ALT-TAB and when active and mouse uncaptured = pause emulation. (Old bug)
+- Added lightpen_offset_gfx=x,y that only adds offset to crosshair (host side) coordinates. Previously implemented lightpen_offset adds offset to Amiga side oordinates.
+- Fast mode chunky line buffer could have contained partial data from previous line. It is now cleared. (Relic / Nerve Axis initial screen. Yet again.)
+
+Beta 9:
+
+- Fixed Matrox Millennium vblank start callback function. Display VRAM start address was not updated correctly if non-zero. Didn't affect other models.
+- Fixed AVI Output color components possibly randomly swapping if output and input width was different. (Pixel adjustment used byte size instead of pixel size)
+- Fixed possible AVI Output buffer overflow crash if video and output buffer dimensions were too different.
+- AVI Output and screenshot requested height from drawing code but it could return wrong results (usually few pixels too short) in fast drawing mode. Most visible side-effect was few pixel vertically jumping AVI recording.
+- SPRxPOS/CTL writes were 0.5CCK too late. (and another ross test works. AGA has more annoying 1 shres pixel offsets but they can wait for next version)
+- Line that force-starts sprites (PAL 25, NTSC 20, end of VB line) also prevents sprite DMA enable even if sprite start or end vertical would match this line. VB end line is the only line that has this special condition because it is line that resets sprite logic. Old forgotten hack was finally removed and correct behavior was implemented.
+
+Beta 8:
+
+- If statefile is loaded and it contains expansion devices, ignore currently loaded configuration's expansion devices. Previously both got mixed and sorted using configuration's sort mode. Result was boards in wrong addresses after statefile was loaded if board configuration was not exactly same as in statefile.
+- Fix graphics corruption (stuck sprites) in fast drawing mode if sprites were used "strangely". (Castlevania AGA)
+- If sprite was armed, sprite shifter was activated, SPRxCTL was written, disarming the sprite: sprite stopped immediately due to too early switch to less complex bitplane-only drawing mode. Sprite output shifter should empty first.
+- Horizontally early BPL1DAT write in OCS Denise config activated sprites even if it was too early (broke in some early v6 betas)
+- Last line of frame and programmed mode: line was incorrectly detected as VB line when emulating sprites, even if programmed VB started later.
+- Very messed up programmed mode setup could have caused internal divide by zero crash due to number of scanlines being detected as zero.
+- Fixed AVI output swapped color components in "before filtering" mode. Again.
+- If AVI output or continuous screenshot is active: always use internal temporary display buffer mode because reading from VRAM is slow.
+- DMA debugger 64-bit (AGA FMODE=3) DMA transfer data digits was partially overwritten with other markers.
+- Some Matrox fixes from 86box.
+- D3D11 mode now clears allocated textures because they are not guaranteed to be cleared after allocation. Could have left garbage on screen when screen size/etc changed depending on GPU/drivers/etc.
+- Some (older?) sound drivers return invalid argument error code instead of unsupported format when querying 8 channel formats which stopped supported format enumeration early if GUI selected mode was not supported.
+
+Beta 7:
+
+- Activating light pen on the fly (and other features that write on top of native screen) and fast drawing mode was possible: light pen left trails on non-modified parts of screen until display was reset (for example resize of windowed mode window). (v6)
+- Fixed lightpen crosshair trails (and other overlay graphics that can appear on top of blanking) in higher overscan modes if fast mode drawn.
+- Lightpen enabled but with crosshair cursor disabled could result in blank screen because it incorrectly enabled temp buffer mode but temp buffer was never selected because crosshair was disabled. It did work correctly if also some other feature required temp buffer, for example genlock.
+- Fixed bad buffer size validation when fast mode drawing under hblank/border (for example large enough overscan) to temp buffer. It used original buffer end for limit check. If temp buffer was earlier than display buffer in address space, temp buffer was detected as too small, skipping the temp buffer part completely, creating visible horizontal offset.
+- Added Warp Engine "ROM disabled" option.
+
+Beta 6:
+
+- DDFSTRT/DDFSTOP/HARDSTART/HARDEND/BPLSTART logic partially rewritten again, it still wasn't fully cycle-accurate. There is no DDFSTRT==DDFSTOP special case, it can't even exist. More details later. (ross tests(tm) are back, at least partially, and immediately something non-accurate was found)
+- Bitplane DMA disabling sprites didn't work correctly if bitplane DMA started after sprites and then bitplane DMA overrun over sprite cycles in next line. (This never happens normally because it is not possible to have this condition without refresh and other conflicts). This and above means really weird (and totally pointless) DDFSTRT/STOP combinations with BEAMCON0 HARDDIS=1 are now cycle-accurate.
+- Unaligned AGA FMODE>0 bitplane/sprite pointer/modulo adder behavior implemented again (another v6 rewrite missed feature)
+- Audio state transition from 1 to 5 didn't handle interrupt correctly (other state changes were already fixed some time ago)
+- FPS counter was not (usually) updated when any debugger breakpoint was active.
+- Clear display buffer also when in no signal state (invalid programmed mode configuration)
+- Debugger memory read and write commands end address off by one visual bug fixed.
+- Bitplane to bitplane collision do not require any CLXCON bitplane bits set. Empty odd plane can "collide" with empty even plane.
+- Sprites to sprites/bitplane collision detection activates 1 lores pixel early (1 pixel before border ends), sprite to bitplane collision is detected if sprite is under the border (last pixel of border) and bitplane collision bits are all zeroed ("Collides" to background color). OCS/ECS only. Fixed in AGA.
+- If JIT is enabled, do not unmap Z2 and Z3 autoconfig RAM boards during reset. JIT can crash randomly when reseting the system and JIT was executing code from Z3/Z2 RAM. This was default long time ago but was removed because it appeared to work fine. Apparently not 100%. Technically Z2/Z3 RAM should disappear at reset but AFAIK at least some real world CPU boards with internal Z2/Z3 RAM don't do that. (I'd recommend also using "Prosessor slot" RAM expansion.)
+- Added Processor slot RAM setting to main memory GUI (was previously only in Advanced Memory Settings dropdown menu) because in real world this is much more common accelerator RAM expansion than Z3 Fast RAM.
+- If Chip RAM size was increased to 1M or more, Agnus is OCS and emulation has not been started: set Agnus model to ECS. Hopefully makes it less easy to accidentally configure broken OCS Agnus + 1M+ Chip RAM configuration which appears to work fine until chip ram gets allocated above 512k border. OCS Agnus + >512k must be still configurable because this (broken) modification can be done in real world quite easily.
+- Fixed possible crash when switching native screen modes (Native screen mode = output buffer width/height changed, native mode lores/hires/shres change is not a mode change) (v6)
+- Fixed possible crash/out of bounds write when updating output display buffer (v6).
+- CD path pointing to non-existing image file caused "unitsem0 acquire mismatch" log message. (very old bug)
+- Fixed wrong S3 Virge PCI mapping that got broken when Matrox emulation was added.
+- Fixed S3 and S3 Virge PCI random crashes due to unsafe thread handling. It could happen when thread was started and then almost immediately killed.
+- Added 1176*664, 1440*1080, 1600*1000 and 1600*1024 to uaegfx static mode ID list.
+
+Beta 5
+
+- KS ROM genlock detection still could misdetect genlock in JIT mode causing guru when timer.device attempts TOD calibration and causing non-existing 80000000 guru due to a KS bug (At least KS 3.1, perhaps others too). (6.0)
+- Fixed bad drive click code, was semi-broken since the beginning. Sound buffer size affected click sound quality and possibly clicks were missed completely. For some reason some WASAPI devices seem to play empty drive clicks with very low volume and also sometimes play motor sample + clicks strangely (samples are exact same and even volume is same), maybe some noise filter or something done by driver or something?
+- Visual DMA debugger now defaults again to Agnus lines, line zero at top. vv-x can be used to show virtual line at top, first line after vsync. Also previously it could have shown random bogus lines at the top or bottom.
+- 6.0b1 "If CIA serial port data direction is changed (CRA OUTMODE toggled), serial port state is reset, possible pending transmit or receive is immediately aborted." checked CIA-A vs CIA-B instead of checking if modified control register was A or B. Most likely didn't cause any side-effects, at least with any normal programs.
+- Chipset display is now cleared when entering genlock mode without genlock (hsync and vsync stops). Previously last frame was shown until no sync condition ended.
+- Trying to load a statefile when in genlock no sync condition didn't do anything.
+- ECS/AGA bitplane enable/disable fix when DDFSTRT==DDFSTOP. It always starts bitplane DMA but "ddfstop passed" condition depends on previous state of bitplane logic. Previously it always triggered "ddfstop passed".
+- Some ECS/AGA bitplane sequencer mid scanline DMA on/off logic changes, was lost during v5 to v6 update.
+- If bitplane DMA last BPL1DAT is also sprite slot and sprite is active: sprite and bitplane DMA conflicts. This was emulated in v5 but was lost during v6 update.
+- AVI capture before filtering had swapped color components (6.0)
+
+Beta 4:
+
+- OCS/ECS "7-planes" mode didn't enable EHB. (6.0)
+- Immediately switch to full line emulation if BPLxDAT is written to, even if line is normally hidden inside vertical blanking (Blanked lines are emulated with simplified code because bitplanes and sprites can be ignored). Unfortunately bitplane data can be visible in some special cases, possibly only during bitplane DMA overrun condition.
+- D3D11 fullscreen mode active, enter GUI, switch screen mode to windowed or full-window, press Reset button: windowed mode didn't open, neither did fullscreen mode. Nothing opened. (Very old bug).
+- Crash was possible when blanking left/right edges of scanlines, for example when in NTSC mode with NTSC artifacts hidden (b3)
+- AlfaPower HD "ROM disabled" option added.
+
+Beta 3:
+
+- Fixed fast drawing mode horizontal positioning being wrong randomly (b2)
+- NTSC and fast mode and pixel column just before horizontal blank start has changing graphics: single pixel column of garbage was visible (for example NTSC mode + Auto integer scale).
+- If whole screen was drawn in fast drawing mode, horizontal bitplane start and end position was not stored, causing horizontal centering, automatic scale etc to fall back to default setting.
+- Overscan blanking filter setting didn't allow selecting value -1 (disabled).
+- Native/RTG autoswitch is really on by default again.
+- Masoboshi Mastercard v2.202 ROM added.
+
+Beta 2:
+
+6.x bugs fixed:
+
+- If horizontal centering moved display far enough left to hide part of bitplane, fast mode drawing had horizontal offset. If centering was far enough right, fast mode drawing didn't stop early enough and wrapped around.
+- Fixed horizontal centering positioning in programmed/scandoubled modes.
+- Added special case for DraCo Altais RTG board: always autoswitch to RTG. DraCo does not have native chipset. (6.0.1 optional autoswitch feature made Altais also optionally autoswitching because Altais does not have built-in switcher. Technically correct but also very annoying with DraCo.)
+
+Other fixes and new features:
+
+- If custom dialog window (HD to HDF creator status bar window possibly was the only one) was closed without user interaction, parent window re-activation was skipped, causing GUI to become completely unresponsive. Old bug.
+- Added "Override initial native chipset display" to RTG panel. If set, selected RTG monitor is immediately active at emulator startup, overriding default chipset display. Screen will be blank until RTG board is initialized. Note: if RTG board has built-in switcher and switcher state is changed, switcher state change will override initial monitor selection.
+- Masoboshi Mastercard v2.204 ROM (final version) was finally found. Added to ROM scanner. Has same "MASOBOSHI.device (MASOBOSHI MC-702 Treiberprogramm)" device strings but also extra "$VER: MasterCard MC302/MC702 2.204 (29.4.96) by Martin Berndt" at the end of ROM that no other known version have.
+
+
+Beta 1:
+
+6.x bugs fixed:
+
+- Another blitter statesave restore when active fix. If blitter was active when restoring and state was saved with 6.0+, restore might have resumed the blit incorrectly.
+- Status bar Power and DFx: had offset when clicking with mouse since capslock/line count was added.
+- Add harddrive still didn't work correctly in all situations. (Partition was selected correctly but when emulation started, it didn't find the selected partition anymore). Added some more log messages.
+- Configurations that need internal RAM graphics buffer (lightpen cursor, video port adapters including genlock, debugging overlays etc that need to modify output graphics) didn't work correctly in automatic scaling modes (right half of display blanked and possible other side-effects)
+- Configurations that need internal RAM graphics buffer (see above) and switching PAL/NTSC (or some other reason for screen height change) didn't update line mapping table, leaving "new" part of display at the bottom blank.
+- Autoresolution + NTSC (possibly also in some other display modes) switched between lores and hires continuously.
+- Fast line drawing in some situations drew only part of scan line (Pinball Illusions table selection screen or Brilliance II first line of bottom screen)
+- Fast line drawing in DPF mode with both planes having different scroll value: visible garbage was possible in right border (Pinball Illusions table selection screen)
+- Horizontal centering change sometimes left garbage in edges of screen.
+- A2024 and possibly some other display port adapters got broken in 6.0.1.
+- On the fly switching to 68000/010 cycle-exact from any non-cycle-exact left internal cycle counter unaligned, causing CE 68000/010 to lose DMA slots "randomly".
+
+Other fixes and new features:
+
+- Added "Always stretch NTSC mode" checkbox to Filter panel (name needs to be better?). If selected (default), NTSC mode is stretched to match PAL mode height. Most filter modes had this active by default. It is now optional. Does not affect Integer scale, most automatic scale and TV modes.
+- Paula pot counter increment is clocked by first strobe slot, was still using start of scanline. (As usual, no one cares)
+- If GUI has text/numeric edit control active, return only unfocuses the control instead of exiting GUI. Return without focused edit control still exits GUI like previously.
+- GUI filter horizontal/vertical number boxes are now directly editable.
+- Manual filter mode positioning range increased, previously negative values were not accepted.
+- Direct3D 11 mode ignored on the fly fullscreen refresh rate changes.
+- External HRTMon ROM images were not accepted. (Maybe some really old ones did work?)
+- Gameports remap window didn't always list all mapped input events. Non-listed events still worked correctly.
+- Gameports remap and manually adding events with "Add event" button and input source was analog stick movement: remapping "randomly" chose between analog and digital input variant. Now digital variant ([-]/[+] at the end of name) has priority.
+- Added 3.2.3 KS ROM checksums (Amiberry)
+- If 680x0 CPU is stopped with IPL mask = 7 (CPU can only wake up with NMI or reset), CPU OSD shows CPU as stopped.
+- Debugger MMU U command now also outputs MMU table descriptor pointers used for table search. Any debugger MMU command now always first flushes descriptor cache. Previously debugger MMU table searches coud modify MMU tables (for example modified bit would get set if not already set). 68030 MMU mmud full table dump command supported.
+- RDB/OFS/FFS hardfile creation option is now separated to RDB and OFS/FFS. RDB adds RDSK identifier to new hardfile and enables Full drive/RDB mode automatically.
+- If A2090 or Mast FireBall hardfile is added, RDB mode was not fully activated automatically.
+- GUI hardfile "New hard disk image file" section does not anymore reset to defaults after HDF has been created and GUI panel is fully updated after new HDF has been created.
+- Added GVP QuikPak (non-XP) 68060 accelerator board. Only has $F00000 ROM that does usual 68060 FPU disable and also adds 9999/22 fake autoconfig device and resident "J Boyer Copyright 1996", no SCSI etc. ROM added to ROM scanner.
+- Added Archos Overdrive HD 3.0 ROM ("amiquest.device (IDE 3.0 05/05/93)") ("IDE 5.0 10/02/94" was added long time ago)
+- Renamed "SCSI Kit III" and "SCSI Kit IV" -> "Blizzard SCSI Kit III" and "Blizzard SCSI Kit IV" (Rename does not affect existing configurations)
+
+
+6.0.1
+
 Beta 2:
 
 - ROM scanner detected ROMs dialog didn't list CD32 if only detected CD32 ROM was single 1M ROM.
@@ -86,7 +291,7 @@ Beta 29:
 
 - Fast mode drawing always masked chip ram addresses to regular chip RAM size causing corrupted graphics if 32-bit chip RAM was enabled.
 - Right edge horizontal scrolling glitch is now only emulated correctly (as in glitches correctly) in accurate emulation modes. Fast CPU modes "fixes" the glitch. I don't normally like "fixing" hardware design flaws but I didn't find any other simple solution to fix this problem without huge changes to fast drawing modes. This might work better in some future version. Normally this condition (Very large right edge overscan + horizontal scrolling) is rarely visible because it looks very ugly.
-- Remove interlace artifacts very glitchy scrolling fixed (b28). There still can be single line that has wrong graphics before it gets redrawn in next frame but because it happens at the same as another usual glitch that affects all lines hen bitplane pointers get updated while scrolling, it is not important problem.
+- Remove interlace artifacts very glitchy scrolling fixed (b28). There still can be single line that has wrong graphics before it gets redrawn in next frame but because it happens at the same as another usual glitch that affects all lines when bitplane pointers get updated while scrolling, it is not important problem.
 - If only difference between odd and even field scrolling value in BPLCON1 was AGA-only hires or shres bits, emulation mode that emulates odd/even planes separately was not selected and odd planes used same scrolling value as even planes.
 - Fixed crash when doubleclicking config tree view root node.
 - b25 interlace change was not fully working, it was still possible to get for example autoscale filter mode display jumping between long and short field heights. 
