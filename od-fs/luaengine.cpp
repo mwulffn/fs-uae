@@ -13,6 +13,8 @@
 #include "luaengine.h"
 
 #include "audio.h"
+#include "custom.h"
+#include "events.h"
 #include "fsemu-action.h"
 #include "fsemu-input.h"
 #include "fsemu-time.h"
@@ -279,6 +281,50 @@ static int l_emu_frame(lua_State *L)
     return 1;
 }
 
+// emu.cycles() returns the emulated time in cycles of the 7.09 MHz (PAL)
+// clock: two per colour clock, and the unit of 68000 instruction timings.
+// It is a whole number on a 68000. Faster CPUs also stop at fractions.
+static int l_emu_cycles(lua_State *L)
+{
+    evt_t cycles = get_cycles();
+    const int unit = CYCLE_UNIT / 2;
+    if (cycles % unit == 0) {
+        lua_pushinteger(L, cycles / unit);
+    } else {
+        lua_pushnumber(L, (lua_Number) cycles / unit);
+    }
+    return 1;
+}
+
+// emu.beam() returns the line and the horizontal position (in colour
+// clocks) the display has reached.
+static int l_emu_beam(lua_State *L)
+{
+    lua_pushinteger(L, vpos);
+    lua_pushinteger(L, current_hpos());
+    return 2;
+}
+
+// emu.timing() returns the frame timing of the current display mode:
+// {lines = ..., cycles_per_line = ..., cycles_per_frame = ..., hz = ...},
+// with cycles as in emu.cycles. Lines can differ by a colour clock and
+// interlaced frames by a line, so the cycle counts are rounded.
+static int l_emu_timing(lua_State *L)
+{
+    // A long frame (every frame when not interlaced) has one more line.
+    int lines = maxvpos + (lof_store ? 1 : 0);
+    lua_createtable(L, 0, 4);
+    lua_pushinteger(L, lines);
+    lua_setfield(L, -2, "lines");
+    lua_pushinteger(L, maxhpos * 2);
+    lua_setfield(L, -2, "cycles_per_line");
+    lua_pushinteger(L, (lua_Integer) lines * maxhpos * 2);
+    lua_setfield(L, -2, "cycles_per_frame");
+    lua_pushnumber(L, vblank_hz);
+    lua_setfield(L, -2, "hz");
+    return 1;
+}
+
 static int l_emu_wait_frames(lua_State *L)
 {
     lua_pushinteger(L, luaL_optinteger(L, 1, 1));
@@ -406,8 +452,10 @@ static int l_emu_config_set(lua_State *L)
 }
 
 static const luaL_Reg emu_functions[] = {
+    {"beam", l_emu_beam},
     {"config_get", l_emu_config_get},
     {"config_set", l_emu_config_set},
+    {"cycles", l_emu_cycles},
     {"frame", l_emu_frame},
     {"log", l_emu_log},
     {"on_frame", l_emu_on_frame},
@@ -418,6 +466,7 @@ static const luaL_Reg emu_functions[] = {
     {"reset", l_emu_reset},
     {"resume", l_emu_resume},
     {"step", l_emu_step},
+    {"timing", l_emu_timing},
     {"wait_frames", l_emu_wait_frames},
     {"wait_next_frame", l_emu_wait_next_frame},
     {"warp", l_emu_warp},

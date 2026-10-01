@@ -123,6 +123,14 @@ class SymbolTest(unittest.TestCase):
         finally:
             self.lua.call("dbg.exclear() state.restore(snapshot)")
 
+    def test_measure_subroutine(self) -> None:
+        # Without an end address, the time until the subroutine returns is
+        # measured. "update" is five instructions and the RTS.
+        result = self.lua.eval("dbg.measure('update', nil, 5)")
+        self.assertEqual(result["count"], 5)
+        self.assertTrue(all(10 < sample < 300 for sample in result["samples"]))
+        self.assertEqual(self.lua.eval("dbg.bplist()"), [])
+
     def test_program_not_running(self) -> None:
         with self.assertRaisesRegex(LuaError, "the program 'other' is not running"):
             self.lua.call(f"dbg.load_symbols('{self.executable}', 'other')")

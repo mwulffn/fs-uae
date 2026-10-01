@@ -96,6 +96,9 @@ Addresses and values are integers. Functions raise a Lua error when given invali
 | Function | Description |
 | --- | --- |
 | `emu.frame()` | Number of frames emulated since Lua was started. |
+| `emu.cycles()` | The emulated time in cycles (see below). |
+| `emu.beam()` | The line and the horizontal position (in colour clocks) the display has reached. |
+| `emu.timing()` | `{lines = ..., cycles_per_line = ..., cycles_per_frame = ..., hz = ...}` for the current display mode. |
 | `emu.wait_frames(n)` | Wait until `n` frames (default 1) have been emulated. |
 | `emu.wait_next_frame()` | The same as `emu.wait_frames(1)`. |
 | `emu.on_frame(f)` | Call `f()` after every frame. Returns an id. |
@@ -112,6 +115,12 @@ Addresses and values are integers. Functions raise a Lua error when given invali
 | `emu.log(text)` | Write a line to the FS-UAE log. |
 
 `print` writes to the output of the request, or to the log when called outside a request.
+
+A cycle in `emu.cycles` is a cycle of the 7.09 MHz clock of a PAL Amiga: there are two per colour
+clock, 454 per line and 142102 per PAL frame, and it is the unit in which the instruction times
+of the 68000 are given. It is a whole number on a 68000; with a faster CPU, instructions also end
+at fractions of a cycle. How much of a frame something takes is its cycles divided by
+`emu.timing().cycles_per_frame`, and in raster lines by `cycles_per_line`.
 
 ### mem
 
@@ -166,6 +175,7 @@ The registers are fields which can be read and assigned: `cpu.d0` to `cpu.d7`, `
 | `dbg.step(n)` | Run `n` instructions (default 1) and stop. Returns the same as `dbg.wait`. |
 | `dbg.stopped()` | The same table as `dbg.wait` returns if the emulation is stopped, otherwise false. |
 | `dbg.command(text)` | Run a command in the built-in UAE debugger and return its output. |
+| `dbg.measure(from, to, count, frames)` | Measure the time from one address to another (see below). |
 | `dbg.load_symbols(path, name, frames)` | Load the symbols of a running program (see below). |
 | `dbg.symbol(name)` | The address of a symbol, or nil. |
 | `dbg.lookup(address)` | The name for an address inside a loaded program, such as `"update"` or `"update+$1a"`, or nil. |
@@ -174,6 +184,26 @@ The registers are fields which can be read and assigned: `cpu.d0` to `cpu.d7`, `
 The table from `dbg.wait` has `reason` (`"breakpoint"`, `"tap"`, `"step"`, `"exception"`, `"halt"`
 or `"pause"`) and `pc`. For breakpoints, taps and exceptions it also has `id` and `address`, and
 for exceptions and halts `vector`.
+
+#### Measuring time
+
+`dbg.measure` uses breakpoints and `emu.cycles` to time a part of the program:
+
+```lua
+dbg.measure("update_player")                 -- a subroutine, from its start until it returns
+dbg.measure(0x24a6c, 0x24b10)                -- from one address to another
+dbg.measure("main_loop", "main_loop", 50)    -- between passes of one address, 50 times
+```
+
+- `from` and `to` are addresses, or symbol names when symbols are loaded. Without `to`, `from`
+  must be the start of a subroutine entered with JSR or BSR.
+- `count` is the number of measurements (default 1), and `frames` how many frames to wait for
+  them (default 500). The emulation must be running.
+- The result is `{count = ..., min = ..., max = ..., average = ..., samples = {...}}`, in the
+  cycles of `emu.cycles`. Interrupts taken in between are part of the time.
+- With cycle-exact 68000 emulation the times are exact: `ADDQ.L #1,D0` measures 8 cycles. The
+  68020 and later are emulated with their instruction pipeline, where a short instruction can
+  take no time of its own, and without cycle-exact emulation the times are approximate.
 
 #### Symbols
 

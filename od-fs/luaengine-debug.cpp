@@ -443,6 +443,89 @@ static const luaL_Reg tap_functions[] = {
     {NULL, NULL},
 };
 
+// dbg.measure(from, to, count, frames) measures how long the program takes
+// to get from one address to another, using breakpoints and emu.cycles.
+// - from and to are addresses (or symbol names, when symbols are loaded).
+// - Without to (nil), from is the start of a subroutine, and the time until
+//   it returns is measured.
+// - With to equal to from, the time between two passes is measured.
+// - count is the number of measurements to take (default 1), and frames the
+//   number of frames to wait for them (default 500).
+// Returns {count = ..., min = ..., max = ..., average = ..., samples =
+// {...}} in the cycles of emu.cycles.
+static const char *measure_source = R"LUA(
+function dbg.measure(from, to, count, frames)
+    count = count or 1
+    frames = frames or 500
+    local samples = {}
+    local breakpoints = {}
+    local start
+
+    local function add_sample()
+        if start and #samples < count then
+            samples[#samples + 1] = emu.cycles() - start
+        end
+        start = nil
+    end
+
+    if to == nil then
+        local return_breakpoint
+        breakpoints[1] = dbg.bpset(from, function()
+            -- Ignore calls made while one is being measured (recursion).
+            if start or #samples >= count then return end
+            start = emu.cycles()
+            local stack = cpu.a7
+            return_breakpoint = dbg.bpset(mem.peek_u32(stack), function()
+                -- The return address has been taken off the stack.
+                if cpu.a7 == stack + 4 then
+                    add_sample()
+                    dbg.bpclear(return_breakpoint)
+                    return_breakpoint = nil
+                end
+            end)
+        end)
+        breakpoints[2] = function()
+            if return_breakpoint then dbg.bpclear(return_breakpoint) end
+        end
+    elseif to == from then
+        breakpoints[1] = dbg.bpset(from, function()
+            local now = emu.cycles()
+            add_sample()
+            start = now
+        end)
+    else
+        breakpoints[1] = dbg.bpset(from, function() start = emu.cycles() end)
+        breakpoints[2] = dbg.bpset(to, add_sample)
+    end
+
+    local waited = 0
+    while #samples < count and waited < frames do
+        emu.wait_frames(1)
+        waited = waited + 1
+    end
+    for _, breakpoint in ipairs(breakpoints) do
+        if type(breakpoint) == "function" then
+            breakpoint()
+        else
+            dbg.bpclear(breakpoint)
+        end
+    end
+    if #samples == 0 then
+        error("the addresses were not reached in " .. frames .. " frames", 2)
+    end
+
+    local result = {count = #samples, samples = samples, min = samples[1], max = samples[1]}
+    local total = 0
+    for _, sample in ipairs(samples) do
+        result.min = math.min(result.min, sample)
+        result.max = math.max(result.max, sample)
+        total = total + sample
+    end
+    result.average = total / #samples
+    return result
+end
+)LUA";
+
 void luaengine_open_dbg(lua_State *L)
 {
     luaL_newlib(L, dbg_functions);
@@ -450,6 +533,10 @@ void luaengine_open_dbg(lua_State *L)
     lua_getglobal(L, "mem");
     luaL_setfuncs(L, tap_functions, 0);
     lua_pop(L, 1);
+    if (luaL_loadbuffer(L, measure_source, strlen(measure_source), "=measure") != LUA_OK ||
+        lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        luaengine_log_error(L, "measure");
+    }
 }
 
 void luaengine_debug_free(void)
