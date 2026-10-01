@@ -70,6 +70,21 @@ class MemTest(EmulatorTestCase):
         )
         self.assertEqual(results, [10])
 
+    def test_poked_code_is_run(self) -> None:
+        # The loop of the test program is in the instruction cache of a
+        # 68020 or later CPU. Change ADDQ.L #1,D0 to ADDQ.L #2,D0.
+        addq = self.program + harness.ADDQ_OFFSET
+        address = self.program + harness.COUNTER_OFFSET
+        self.lua.call(f"emu.wait_frames(3) mem.poke_u16({addq}, 0x5480)")
+        try:
+            results = self.lua.call(
+                f"emu.wait_frames(2) local a = mem.peek_u32({address}) emu.wait_frames(10) "
+                f"return mem.peek_u32({address}) - a"
+            )
+        finally:
+            self.lua.call(f"mem.poke_u16({addq}, 0x5280)")
+        self.assertEqual(results, [20])
+
     def test_invalid_address(self) -> None:
         with self.assertRaisesRegex(LuaError, "address out of range"):
             self.lua.call("mem.read_u8(-1)")

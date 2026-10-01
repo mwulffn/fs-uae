@@ -15,6 +15,7 @@
 #include "debug.h"
 #include "identify.h"
 #include "memory.h"
+#include "newcpu.h"
 #include "options.h"
 
 // Reading megabytes at a time is fine, this only catches mistakes.
@@ -43,6 +44,14 @@ static uae_u8 *check_direct_pointer(lua_State *L, uaecptr addr, int size)
         luaL_error(L, "address %p is not RAM or ROM", (void *) (uintptr_t) addr);
     }
     return p;
+}
+
+// Called when Lua has written to memory. The emulated CPU can have the old
+// contents in its instruction cache (68020 and later), and would then keep
+// running the old code.
+static void memory_written(void)
+{
+    flush_cpu_caches(true);
 }
 
 static int l_read_u8(lua_State *L)
@@ -82,6 +91,7 @@ static int l_write_u8(lua_State *L)
     luaengine_suspend_taps(true);
     put_byte(addr, value);
     luaengine_suspend_taps(false);
+    memory_written();
     return 0;
 }
 
@@ -92,6 +102,7 @@ static int l_write_u16(lua_State *L)
     luaengine_suspend_taps(true);
     put_word(addr, value);
     luaengine_suspend_taps(false);
+    memory_written();
     return 0;
 }
 
@@ -102,6 +113,7 @@ static int l_write_u32(lua_State *L)
     luaengine_suspend_taps(true);
     put_long(addr, value);
     luaengine_suspend_taps(false);
+    memory_written();
     return 0;
 }
 
@@ -130,6 +142,7 @@ static int l_poke_u8(lua_State *L)
 {
     uae_u8 *p = check_direct_pointer(L, check_address(L, 1), 1);
     p[0] = (uae_u8) luaL_checkinteger(L, 2);
+    memory_written();
     return 0;
 }
 
@@ -139,6 +152,7 @@ static int l_poke_u16(lua_State *L)
     lua_Integer value = luaL_checkinteger(L, 2);
     p[0] = (uae_u8) (value >> 8);
     p[1] = (uae_u8) value;
+    memory_written();
     return 0;
 }
 
@@ -150,6 +164,7 @@ static int l_poke_u32(lua_State *L)
     p[1] = (uae_u8) (value >> 16);
     p[2] = (uae_u8) (value >> 8);
     p[3] = (uae_u8) value;
+    memory_written();
     return 0;
 }
 
@@ -180,6 +195,7 @@ static int l_write_range(lua_State *L)
     for (size_t i = 0; i < length; i++) {
         *check_direct_pointer(L, addr + (uaecptr) i, 1) = (uae_u8) data[i];
     }
+    memory_written();
     return 0;
 }
 
