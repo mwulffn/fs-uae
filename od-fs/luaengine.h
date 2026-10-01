@@ -35,6 +35,7 @@ void luaengine_log_error(lua_State *L, const char *context);
 // Functions creating the global tables with the Lua API.
 
 void luaengine_open_cpu(lua_State *L);
+void luaengine_open_input(lua_State *L);
 void luaengine_open_mem(lua_State *L);
 
 // luaengine-json.cpp
