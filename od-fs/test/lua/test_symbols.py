@@ -128,7 +128,11 @@ class SymbolTest(unittest.TestCase):
         # measured. "update" is five instructions and the RTS.
         result = self.lua.eval("dbg.measure('update', nil, 5)")
         self.assertEqual(result["count"], 5)
-        self.assertTrue(all(10 < sample < 300 for sample in result["samples"]))
+        # With the CPU at maximum speed (A3000, A4000), the instructions take
+        # next to no emulated time.
+        self.assertTrue(all(0 <= sample < 300 for sample in result["samples"]))
+        if self.lua.eval("emu.config_get('cycle_exact')") == "true":
+            self.assertTrue(all(sample > 10 for sample in result["samples"]))
         self.assertEqual(self.lua.eval("dbg.bplist()"), [])
 
     def test_program_not_running(self) -> None:
