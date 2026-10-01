@@ -293,6 +293,25 @@ to run the tests with normal windows. FS-UAE does not grab the mouse unless aske
 middle click), and input sent with the `input` functions does not depend on the window having
 focus.
 
+## Running fast
+
+`emu.warp(true)` runs the emulation as fast as the host allows. How fast that is depends mostly
+on how exact the emulation is. Measured on an Apple Silicon Mac, with a demo running:
+
+| Configuration | Speed in warp mode |
+| --- | --- |
+| A500 or A1200, standard (cycle-exact) | about 480 frames per second (9 times real time) |
+| A500 with `cycle_exact=false` | about 800 frames per second |
+| A1200 with `cycle_exact=false` and `cpu_compatible=false` | about 880 frames per second |
+
+Use the exact settings when the timing of the program matters, and the faster ones for tests of
+logic which does not depend on it. Other ways to save time:
+
+- Take a snapshot (`state.snapshot`) when the program has started, and restore it for each test
+  instead of booting again.
+- Breakpoints and taps cost roughly 10% while they are set, so remove them when they are no
+  longer needed.
+
 ## Limitations
 
 - FS-UAE needs a window; it cannot run without a display.

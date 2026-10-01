@@ -121,8 +121,17 @@ void uae_fs_end_frame()
     // the fs emu frame is complete and any post frame handlers (?) are done.
     // Checking/updating config copy might be one such task.
 
-    // FIXME: PERFORMANCE
-    // FIXME: Maybe replace this function with some possibly more efficient
+    // Writing the configuration as text takes about a millisecond, which is
+    // a third of the time of a frame in warp mode. The UI only needs it to
+    // show the current settings, so it is sent at most ten times per second
+    // instead of after every frame.
+    static int64_t last_config_sent_at;
+    int64_t now = fsemu_time_us();
+    if (last_config_sent_at != 0 && now - last_config_sent_at < 100000) {
+        return;
+    }
+    last_config_sent_at = now;
+
     size_t length;
     //char *config = (char*) save_configuration(&length, false);
     char *config = (char*) save_configuration(&length, true);
