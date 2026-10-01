@@ -27,6 +27,21 @@ static bool xD3D_alloctexture (int monid, int w, int h)
 bool (*D3D_alloctexture)(int, int, int) = xD3D_alloctexture;
 
 static uae_u8 *video_memory = NULL;
+// The size of the last frame drawn into video_memory.
+static int video_memory_width;
+static int video_memory_height;
+
+bool uae_fs_video_frame(const uae_u8 **buffer, int *stride, int *width, int *height)
+{
+	if (video_memory == NULL || video_memory_width == 0) {
+		return false;
+	}
+	*buffer = video_memory;
+	*stride = 2048 * 4;
+	*width = video_memory_width;
+	*height = video_memory_height;
+	return true;
+}
 
 static uae_u8 *xD3D11_locktexture(int monid, int *pitch, int *width, int *height, int fullupdate)
 {
@@ -2693,6 +2708,8 @@ bool uae_fsvideo_renderframe(int monid, int mode, bool immediate)
 		// frame->height = AMIGA_HEIGHT;
 		frame->width = avidinfo->outbuffer->outwidth;
 		frame->height = avidinfo->outbuffer->outheight;
+		video_memory_width = frame->width;
+		video_memory_height = frame->height;
 
 		// Compensate for (Win)UAE adding 2 pixels to the left and the right of the "Overscan"
 		// buffer (don't know why it's there), and make the "full frame" also compatible with

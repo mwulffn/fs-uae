@@ -406,6 +406,7 @@ void uae_lua_init_state(lua_State *L)
     luaengine_open_input(L);
     luaengine_open_mem(L);
     luaengine_open_state(L);
+    luaengine_open_video(L);
     // Adds functions to the mem table.
     luaengine_open_dbg(L);
 }

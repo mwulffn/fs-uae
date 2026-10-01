@@ -61,6 +61,7 @@ void luaengine_open_dbg(lua_State *L);
 void luaengine_open_input(lua_State *L);
 void luaengine_open_mem(lua_State *L);
 void luaengine_open_state(lua_State *L);
+void luaengine_open_video(lua_State *L);
 
 // luaengine-debug.cpp
 

@@ -17,6 +17,10 @@ void uae_fs_apply_pending_config_changes(void);
 void uae_fs_begin_frame(float vblank_hz);
 void uae_fs_end_frame();
 
+// Gives access to the last frame drawn by the chipset emulation, with four
+// bytes (blue, green, red, unused) per pixel. Returns false if there is none.
+bool uae_fs_video_frame(const uae_u8 **buffer, int *stride, int *width, int *height);
+
 // 
 
 void romlist_init (void);
