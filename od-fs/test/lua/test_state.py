@@ -91,9 +91,11 @@ class SnapshotTest(EmulatorTestCase):
         self.lua.call("state.restore(first)")
         first = self.counter()
         self.lua.call("state.restore(second)")
-        self.assertEqual(self.counter(), first + 51)
+        # With the CPU at maximum speed, the program can be one frame ahead
+        # or behind when the frame after the restore has been run.
+        self.assertLessEqual(abs(self.counter() - (first + 51)), 1)
         self.lua.call("state.restore(first)")
-        self.assertEqual(self.counter(), first)
+        self.assertLessEqual(abs(self.counter() - first), 1)
 
     def test_snapshot_while_running(self) -> None:
         self.lua.call("emu.resume() snapshot = state.snapshot()")

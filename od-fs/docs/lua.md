@@ -130,7 +130,8 @@ Addresses and values are integers. Functions raise a Lua error when given invali
 Notes on taps:
 
 - If the callback returns an integer, that value is read or written instead.
-- `pc` is the address of the instruction making the access.
+- `pc` is the address of the instruction making the access. With 68030 MMU emulation (the A3000
+  configuration), it is the address of the instruction after it.
 - The callback is called for each bus access. Depending on the CPU emulation, a long word is
   accessed as one long word or as two words.
 - The callback runs in the middle of an instruction. It can read and write memory and call
@@ -270,8 +271,10 @@ cd od-fs/test/lua
 FSUAE_TEST_KICKSTART=/path/to/kickstart.rom python3 -m unittest
 ```
 
-`FSUAE_TEST_MODEL` selects the Amiga model matching the ROM (`A1200`, the default, or `A500`), and
-`FSUAE_TEST_BINARY` the executable to test (default `od-fs/fs-uae`). Most tests boot a small
+`FSUAE_TEST_MODEL` selects the Amiga model matching the ROM (`A500`, `A500+`, `A600`, `A1200`,
+`A3000` or `A4000`; the default is `A1200`), and `FSUAE_TEST_BINARY` the executable to test
+(default `od-fs/fs-uae`). The model is set up with the `quickstart` option, so the tests run with
+the standard configuration of that model. Most tests boot a small
 disk image which they create themselves. `test_public_disk.py` downloads the free operating system
 EmuTOS and boots that.
 
@@ -287,4 +290,8 @@ EmuTOS and boots that.
   found; it is in how the display is set up after a restore, not in the Lua functions.
 - Lua runs on the emulation thread. A script which loops without waiting stops the emulation.
 - Breakpoints and instruction steps have not been tested with the JIT compiler (x86 only).
-- The tests have only been run with an A1200 Kickstart 3.1 ROM on macOS.
+- When the CPU runs at maximum speed (the default for the A3000 and A4000 configurations), how
+  much the CPU gets done per frame depends on the host, so runs are not exactly repeatable. After
+  restoring a state, a program can be a frame ahead of or behind where it was the last time.
+- The tests have been run on macOS only, with these models and Kickstart ROMs: A500 (1.3 and
+  3.1), A500+ (2.04), A600 (2.05), A1200 (3.1), A3000 (2.04) and A4000 (3.1).

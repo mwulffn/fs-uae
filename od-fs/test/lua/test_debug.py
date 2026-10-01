@@ -144,8 +144,10 @@ class TapTest(DebugTestCase):
                 (address, size), [(self.counter_address, 4), (self.counter_address + 2, 2)]
             )
             self.assertEqual(value & 0xFFFF, (writes[0][1] + i) & 0xFFFF)
-            # The instruction after ADDQ is MOVE.L D0,(A0).
-            self.assertEqual(pc, self.addq + 2)
+            # The instruction after ADDQ is MOVE.L D0,(A0). With 68030 MMU
+            # emulation (A3000), the address of the next instruction is
+            # reported instead.
+            self.assertIn(pc, [self.addq + 2, self.addq + 4])
 
     def test_write_tap_can_change_the_value(self) -> None:
         self.lua.call(
