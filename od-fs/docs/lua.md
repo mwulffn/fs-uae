@@ -309,8 +309,10 @@ logic which does not depend on it. Other ways to save time:
 
 - Take a snapshot (`state.snapshot`) when the program has started, and restore it for each test
   instead of booting again.
-- Breakpoints and taps cost roughly 10% while they are set, so remove them when they are no
-  longer needed.
+- Remove breakpoints when they are no longer needed. While any breakpoint is set, every
+  instruction is checked: one breakpoint cost 10% with a demo running and 40% with a program in a
+  tight loop, and 51 breakpoints cost 27% and 66%. A tap only costs when memory in the same 64 KB
+  block is accessed.
 
 ## Limitations
 
