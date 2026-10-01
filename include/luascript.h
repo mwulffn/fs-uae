@@ -20,6 +20,7 @@ void uae_lua_init_state(lua_State *L);
 void uae_lua_run_handler(const char *name);
 #ifdef FSUAE
 void uae_lua_service(void);
+void uae_lua_memwatch(int num, uaecptr addr, int rwi, int size, uae_u32 *valp);
 #endif
 void uae_lua_aquire_lock();
 void uae_lua_release_lock();

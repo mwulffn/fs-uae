@@ -41,6 +41,12 @@ static luaengine_task *g_current_task;
 static bool g_stop_requested;
 // When not 0, the number of frames left to run before stopping again.
 static int64_t g_step_frames;
+// Why the emulation was stopped, for dbg.wait and the stopped event.
+static struct {
+    const char *reason;
+    int id;
+    uaecptr address;
+} g_stop_info;
 
 void luaengine_log_error(lua_State *L, const char *context)
 {
@@ -91,6 +97,7 @@ static void resume_task(luaengine_task *task, int nargs)
     int nresults;
     luaengine_task *previous_task = g_current_task;
     g_current_task = task;
+    task->wait_stop = false;
     int status = lua_resume(task->thread, L, nargs, &nresults);
     g_current_task = previous_task;
     if (status == LUA_YIELD) {
@@ -117,6 +124,7 @@ void luaengine_start_task(lua_State *L, int nargs, int client, const char *reque
     task->thread = lua_newthread(L);
     task->ref = luaL_ref(L, LUA_REGISTRYINDEX);
     task->wake_frame = 0;
+    task->wait_stop = false;
     task->client = client;
     task->request_id = request_id;
     lua_xmove(L, task->thread, nargs + 1);
@@ -156,6 +164,68 @@ static void run_frame_callbacks(void)
     } else {
         lua_pop(L, 1);
     }
+}
+
+void luaengine_stop(const char *reason, int id, uaecptr address)
+{
+    g_stop_requested = true;
+    g_step_frames = 0;
+    g_stop_info.reason = reason;
+    g_stop_info.id = id;
+    g_stop_info.address = address;
+    // Make the CPU loop call uae_lua_service before the next instruction.
+    set_special(SPCFLAG_BRK);
+}
+
+void luaengine_resume(void)
+{
+    g_stop_requested = false;
+    g_step_frames = 0;
+}
+
+bool luaengine_stop_requested(void)
+{
+    return g_stop_requested;
+}
+
+void luaengine_push_stop_info(lua_State *L)
+{
+    if (!g_stop_requested) {
+        lua_pushboolean(L, false);
+        return;
+    }
+    lua_createtable(L, 0, 4);
+    lua_pushstring(L, g_stop_info.reason);
+    lua_setfield(L, -2, "reason");
+    lua_pushinteger(L, m68k_getpc());
+    lua_setfield(L, -2, "pc");
+    if (g_stop_info.id != 0) {
+        lua_pushinteger(L, g_stop_info.id);
+        lua_setfield(L, -2, "id");
+        lua_pushinteger(L, g_stop_info.address);
+        lua_setfield(L, -2, "address");
+    }
+}
+
+static int stop_wait_finished(lua_State *L, int status, lua_KContext context)
+{
+    // The stack holds the stop information, or nothing after a timeout.
+    return lua_gettop(L);
+}
+
+int luaengine_yield_until_stopped(lua_State *L, lua_Integer max_frames)
+{
+    if (g_stop_requested) {
+        luaengine_push_stop_info(L);
+        return 1;
+    }
+    if (g_current_task == NULL) {
+        return luaL_error(L, "cannot wait outside a task");
+    }
+    g_current_task->wait_stop = true;
+    lua_settop(L, 0);
+    lua_pushinteger(L, max_frames > 0 ? max_frames : INT64_MAX / 2);
+    return lua_yieldk(L, 1, 0, stop_wait_finished);
 }
 
 int luaengine_yield_frames(
@@ -218,15 +288,16 @@ static int l_emu_remove_frame_callback(lua_State *L)
 
 static int l_emu_pause(lua_State *L)
 {
-    g_stop_requested = true;
-    g_step_frames = 0;
+    // Keep the reason if the emulation is already about to stop.
+    if (!g_stop_requested) {
+        luaengine_stop("pause");
+    }
     return 0;
 }
 
 static int l_emu_resume(lua_State *L)
 {
-    g_stop_requested = false;
-    g_step_frames = 0;
+    luaengine_resume();
     return 0;
 }
 
@@ -335,6 +406,8 @@ void uae_lua_init_state(lua_State *L)
     luaengine_open_input(L);
     luaengine_open_mem(L);
     luaengine_open_state(L);
+    // Adds functions to the mem table.
+    luaengine_open_dbg(L);
 }
 
 void uae_lua_load(const TCHAR *filename)
@@ -388,10 +461,40 @@ void uae_lua_run_handler(const char *name)
     }
 }
 
+// Resumes the tasks waiting in dbg.wait, and tells the remote clients that
+// the emulation stopped for another reason than a request to pause.
+static void notify_stopped(void)
+{
+    lua_State *L = g_luaengine_state;
+    if (strcmp(g_stop_info.reason, "pause") != 0) {
+        std::string fields;
+        luaengine_push_stop_info(L);
+        luaengine_json_append_value(fields, L, -1);
+        lua_pop(L, 1);
+        // The table is sent as the fields of the event.
+        luaengine_remote_send_event("stopped", fields.substr(1, fields.size() - 2));
+    }
+    std::vector<luaengine_task *> tasks;
+    tasks.swap(g_tasks);
+    for (luaengine_task *task : tasks) {
+        if (task->wait_stop) {
+            luaengine_push_stop_info(L);
+            lua_xmove(L, task->thread, 1);
+            resume_task(task, 1);
+        } else {
+            g_tasks.push_back(task);
+        }
+    }
+}
+
 // Keeps the emulation stopped, only handling remote requests, until one of
 // them resumes it.
 static void stopped_loop(void)
 {
+    notify_stopped();
+    if (!g_stop_requested) {
+        return;
+    }
     pause_sound();
     int64_t next_frame_at = 0;
     while (g_stop_requested && quit_program == 0) {
@@ -426,7 +529,7 @@ void uae_lua_service(void)
         if (g_step_frames > 0) {
             g_step_frames -= 1;
             if (g_step_frames == 0) {
-                g_stop_requested = true;
+                luaengine_stop("pause");
             }
         }
         run_frame_callbacks();
@@ -435,8 +538,17 @@ void uae_lua_service(void)
     if (new_frame) {
         luaengine_remote_poll();
     }
+    if (luaengine_debug_active()) {
+        luaengine_debug_instruction();
+    }
     if (g_stop_requested) {
         stopped_loop();
+    }
+    if (luaengine_debug_active()) {
+        // Come back here before the next instruction, which is not the one
+        // we just checked or stopped at.
+        luaengine_debug_mark_instruction();
+        set_special(SPCFLAG_BRK);
     }
 }
 
@@ -447,6 +559,7 @@ void uae_lua_init(void)
 void uae_lua_free(void)
 {
     luaengine_remote_close();
+    luaengine_debug_free();
     for (luaengine_task *task : g_tasks) {
         delete task;
     }

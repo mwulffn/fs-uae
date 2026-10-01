@@ -7,6 +7,8 @@
 
 #include <string>
 
+#include "uae/types.h"
+
 // The Lua state shared by startup scripts (lua=<file>), or NULL when Lua
 // is not running. Only to be used from the emulation thread.
 extern lua_State *g_luaengine_state;
@@ -17,6 +19,8 @@ struct luaengine_task {
     // Registry reference keeping the thread alive.
     int ref;
     int64_t wake_frame;
+    // The task is resumed when the emulation stops (or at wake_frame).
+    bool wait_stop;
     // The remote client and request which started the task, or -1.
     int client;
     std::string request_id;
@@ -35,15 +39,42 @@ void luaengine_start_task(lua_State *L, int nargs, int client = -1, const char *
 int luaengine_yield_frames(
     lua_State *L, lua_Integer frames, lua_KFunction k = NULL, lua_KContext context = 0);
 
+// Stops the emulation before the next instruction, as emu.pause does. The
+// reason, and the id and address when given, are what dbg.wait returns.
+void luaengine_stop(const char *reason, int id = 0, uaecptr address = 0);
+void luaengine_resume(void);
+bool luaengine_stop_requested(void);
+// Pushes a table describing why the emulation is stopped, or false.
+void luaengine_push_stop_info(lua_State *L);
+// Yields the calling task until the emulation stops, and returns the stop
+// information to it. If max_frames is not 0, the task also continues (with
+// no values returned) when that many frames have been emulated.
+int luaengine_yield_until_stopped(lua_State *L, lua_Integer max_frames);
+
 // Logs the error message on top of the stack and pops it.
 void luaengine_log_error(lua_State *L, const char *context);
 
 // Functions creating the global tables with the Lua API.
 
 void luaengine_open_cpu(lua_State *L);
+void luaengine_open_dbg(lua_State *L);
 void luaengine_open_input(lua_State *L);
 void luaengine_open_mem(lua_State *L);
 void luaengine_open_state(lua_State *L);
+
+// luaengine-debug.cpp
+
+// True while uae_lua_service must be called before every instruction.
+bool luaengine_debug_active(void);
+// Checks breakpoints and counts instruction steps. Called before every
+// instruction while luaengine_debug_active.
+void luaengine_debug_instruction(void);
+// Makes the next call to luaengine_debug_instruction ignore the current
+// instruction, which has already been checked (or is where we stopped).
+void luaengine_debug_mark_instruction(void);
+// Memory accesses made while suspended do not run tap callbacks.
+void luaengine_suspend_taps(bool suspend);
+void luaengine_debug_free(void);
 
 // luaengine-json.cpp
 

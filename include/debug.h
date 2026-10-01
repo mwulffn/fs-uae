@@ -60,6 +60,10 @@ extern int instruction_breakpoint (TCHAR **c);
 extern int debug_bankchange (int);
 extern void log_dma_record (void);
 extern void debug_parser (const TCHAR *cmd, TCHAR *out, uae_u32 outsize);
+#if defined(FSUAE) && defined(WITH_LUA)
+extern int debug_lua_memwatch_add(uaecptr addr, int size, int rwi);
+extern void debug_lua_memwatch_remove(int num);
+#endif
 extern void mmu_disasm (uaecptr pc, int lines);
 extern int debug_read_memory_16 (uaecptr addr);
 extern int debug_peek_memory_16 (uaecptr addr);

@@ -21,6 +21,9 @@
 #include "newcpu.h"
 #include "cpu_prefetch.h"
 #include "debug.h"
+#ifdef WITH_LUA
+#include "luascript.h"
+#endif
 #include "disasm.h"
 #include "debugmem.h"
 #include "cia.h"
@@ -3985,6 +3988,11 @@ static void memwatch_hit_msg(int mw)
 	}
 }
 
+#if defined(FSUAE) && defined(WITH_LUA)
+// The memwatch nodes which are used for Lua memory taps.
+static bool mwnodes_lua[MEMWATCH_TOTAL];
+#endif
+
 static int memwatch_func (uaecptr addr, int rwi, int size, uae_u32 *valp, uae_u32 accessmask, uae_u32 reg)
 {
 	uae_u32 val = *valp;
@@ -4133,6 +4141,12 @@ static int memwatch_func (uaecptr addr, int rwi, int size, uae_u32 *valp, uae_u3
 			}
 			return 0;
 		}
+#if defined(FSUAE) && defined(WITH_LUA)
+		if (mwnodes_lua[i]) {
+			uae_lua_memwatch(i, addr, rwi, size, valp);
+			continue;
+		}
+#endif
 		mwhit.addr = addr;
 		mwhit.rwi = rwi;
 		mwhit.size = size;
@@ -4513,6 +4527,51 @@ static void memwatch_setup(void)
 		}
 	}
 }
+
+#if defined(FSUAE) && defined(WITH_LUA)
+
+// Adds a memwatch node for CPU accesses, which calls uae_lua_memwatch
+// instead of entering the debugger. Returns the node number, or -1 if all
+// the nodes are in use.
+int debug_lua_memwatch_add(uaecptr addr, int size, int rwi)
+{
+	if (!memwatch_enabled) {
+		initialize_memwatch(0);
+		memwatch_access_validator = 0;
+	}
+	for (int i = 0; i < MEMWATCH_TOTAL; i++) {
+		struct memwatch_node *m = &mwnodes[i];
+		if (m->size) {
+			continue;
+		}
+		memset(m, 0, sizeof(*m));
+		m->addr = addr;
+		m->size = size;
+		m->rwi = rwi;
+		m->val_mask = 0xffffffff;
+		m->access_mask = MW_MASK_CPU_I | MW_MASK_CPU_D_R | MW_MASK_CPU_D_W;
+		m->reg = 0xffffffff;
+		m->pc = 0xffffffff;
+		mwnodes_lua[i] = true;
+		memwatch_setup();
+		return i;
+	}
+	return -1;
+}
+
+void debug_lua_memwatch_remove(int num)
+{
+	if (num < 0 || num >= MEMWATCH_TOTAL || !mwnodes_lua[num]) {
+		return;
+	}
+	mwnodes[num].size = 0;
+	mwnodes_lua[num] = false;
+	if (memwatch_enabled) {
+		memwatch_setup();
+	}
+}
+
+#endif
 
 static int deinitialize_memwatch (void)
 {

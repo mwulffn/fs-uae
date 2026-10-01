@@ -1852,6 +1852,7 @@ liblua_a_SOURCES = \
 
 libuae_a_SOURCES += \
 	od-fs/luaengine-cpu.cpp \
+	od-fs/luaengine-debug.cpp \
 	od-fs/luaengine-input.cpp \
 	od-fs/luaengine-json.cpp \
 	od-fs/luaengine-mem.cpp \

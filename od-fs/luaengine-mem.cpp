@@ -2,8 +2,8 @@
 //
 // read_* and write_* go through the memory banks like the CPU does, so
 // they have the same side effects as the CPU reading or writing a hardware
-// register. peek_* and poke_* access RAM and ROM directly, and fail for
-// other addresses.
+// register (but they do not run memory taps). peek_* and poke_* access RAM
+// and ROM directly, and fail for other addresses.
 
 #include "sysconfig.h"
 #include "sysdeps.h"
@@ -47,37 +47,61 @@ static uae_u8 *check_direct_pointer(lua_State *L, uaecptr addr, int size)
 
 static int l_read_u8(lua_State *L)
 {
-    lua_pushinteger(L, get_byte(check_address(L, 1)) & 0xff);
+    uaecptr addr = check_address(L, 1);
+    luaengine_suspend_taps(true);
+    uae_u32 value = get_byte(addr) & 0xff;
+    luaengine_suspend_taps(false);
+    lua_pushinteger(L, value);
     return 1;
 }
 
 static int l_read_u16(lua_State *L)
 {
-    lua_pushinteger(L, get_word(check_address(L, 1)) & 0xffff);
+    uaecptr addr = check_address(L, 1);
+    luaengine_suspend_taps(true);
+    uae_u32 value = get_word(addr) & 0xffff;
+    luaengine_suspend_taps(false);
+    lua_pushinteger(L, value);
     return 1;
 }
 
 static int l_read_u32(lua_State *L)
 {
-    lua_pushinteger(L, get_long(check_address(L, 1)));
+    uaecptr addr = check_address(L, 1);
+    luaengine_suspend_taps(true);
+    uae_u32 value = get_long(addr);
+    luaengine_suspend_taps(false);
+    lua_pushinteger(L, value);
     return 1;
 }
 
 static int l_write_u8(lua_State *L)
 {
-    put_byte(check_address(L, 1), (uae_u32) luaL_checkinteger(L, 2) & 0xff);
+    uaecptr addr = check_address(L, 1);
+    uae_u32 value = (uae_u32) luaL_checkinteger(L, 2) & 0xff;
+    luaengine_suspend_taps(true);
+    put_byte(addr, value);
+    luaengine_suspend_taps(false);
     return 0;
 }
 
 static int l_write_u16(lua_State *L)
 {
-    put_word(check_address(L, 1), (uae_u32) luaL_checkinteger(L, 2) & 0xffff);
+    uaecptr addr = check_address(L, 1);
+    uae_u32 value = (uae_u32) luaL_checkinteger(L, 2) & 0xffff;
+    luaengine_suspend_taps(true);
+    put_word(addr, value);
+    luaengine_suspend_taps(false);
     return 0;
 }
 
 static int l_write_u32(lua_State *L)
 {
-    put_long(check_address(L, 1), (uae_u32) luaL_checkinteger(L, 2));
+    uaecptr addr = check_address(L, 1);
+    uae_u32 value = (uae_u32) luaL_checkinteger(L, 2);
+    luaengine_suspend_taps(true);
+    put_long(addr, value);
+    luaengine_suspend_taps(false);
     return 0;
 }
 
