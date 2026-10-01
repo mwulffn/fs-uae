@@ -12,10 +12,19 @@
 // Must be included before luascript.h so the Lua API gets C linkage.
 #include "luaengine.h"
 
+#include "audio.h"
+#include "fsemu-action.h"
+#include "fsemu-input.h"
+#include "fsemu-time.h"
+#include "fsemu-video.h"
+#include "inputdevice.h"
 #include "luascript.h"
 #include "newcpu.h"
 #include "options.h"
+#include "sounddep/sound.h"
+#include "uae.h"
 
+#include <SDL3/SDL.h>
 #include <vector>
 
 lua_State *g_luaengine_state;
@@ -28,6 +37,10 @@ static int64_t g_frame;
 static int g_pending_frames;
 // The task being resumed, or NULL.
 static luaengine_task *g_current_task;
+// The emulation is stopped (in uae_lua_service) while this is set.
+static bool g_stop_requested;
+// When not 0, the number of frames left to run before stopping again.
+static int64_t g_step_frames;
 
 void luaengine_log_error(lua_State *L, const char *context)
 {
@@ -192,13 +205,114 @@ static int l_emu_remove_frame_callback(lua_State *L)
     return 0;
 }
 
+static int l_emu_pause(lua_State *L)
+{
+    g_stop_requested = true;
+    g_step_frames = 0;
+    return 0;
+}
+
+static int l_emu_resume(lua_State *L)
+{
+    g_stop_requested = false;
+    g_step_frames = 0;
+    return 0;
+}
+
+static int l_emu_paused(lua_State *L)
+{
+    lua_pushboolean(L, g_stop_requested);
+    return 1;
+}
+
+// Runs the given number of frames (default 1) and pauses again. Returns
+// when the frames have been run.
+static int l_emu_step(lua_State *L)
+{
+    lua_Integer frames = luaL_optinteger(L, 1, 1);
+    luaL_argcheck(L, frames >= 1, 1, "must be at least 1");
+    g_step_frames = frames;
+    g_stop_requested = false;
+    lua_pushinteger(L, frames);
+    return lua_yield(L, 1);
+}
+
+static int l_emu_warp(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TBOOLEAN);
+    bool warp = lua_toboolean(L, 1);
+    // The UAE core stops waiting for the end of each frame, and FSEMU
+    // stops waiting for the start of the next one.
+    warpmode(warp ? 1 : 0);
+    fsemu_input_process_action(warp ? FSEMU_ACTION_WARP_ENABLE : FSEMU_ACTION_WARP_DISABLE, 1);
+    return 0;
+}
+
+static int l_emu_reset(lua_State *L)
+{
+    bool hard = lua_toboolean(L, 1);
+    uae_reset(hard ? 1 : 0, 0);
+    return 0;
+}
+
+static int l_emu_quit(lua_State *L)
+{
+    // The main thread closes the application, as if the window was closed.
+    SDL_Event event;
+    SDL_zero(event);
+    event.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&event);
+    return 0;
+}
+
+// Returns the value of a configuration option as a string, or nil if the
+// option is not in the configuration.
+static int l_emu_config_get(lua_State *L)
+{
+    const char *key = luaL_checkstring(L, 1);
+    TCHAR out[MAX_DPATH];
+    cfgfile_createconfigstore(&currprefs);
+    // The result is -1 when the option was found.
+    if (cfgfile_searchconfig(key, -1, out, sizeof out / sizeof(TCHAR)) == -1) {
+        lua_pushstring(L, out);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+// Changes a configuration option. Returns false if the option or the value
+// was not accepted.
+static int l_emu_config_set(lua_State *L)
+{
+    // Parsing can modify the strings.
+    char *key = strdup(luaL_checkstring(L, 1));
+    luaL_tolstring(L, 2, NULL);
+    char *value = strdup(lua_tostring(L, -1));
+    int result = cfgfile_parse_option(&changed_prefs, key, value, 0);
+    set_config_changed();
+    free(key);
+    free(value);
+    lua_pushboolean(L, result == 1);
+    return 1;
+}
+
 static const luaL_Reg emu_functions[] = {
+    {"config_get", l_emu_config_get},
+    {"config_set", l_emu_config_set},
     {"frame", l_emu_frame},
     {"log", l_emu_log},
     {"on_frame", l_emu_on_frame},
+    {"pause", l_emu_pause},
+    {"paused", l_emu_paused},
+    {"quit", l_emu_quit},
     {"remove_frame_callback", l_emu_remove_frame_callback},
+    {"reset", l_emu_reset},
+    {"resume", l_emu_resume},
+    {"step", l_emu_step},
     {"wait_frames", l_emu_wait_frames},
     {"wait_next_frame", l_emu_wait_next_frame},
+    {"warp", l_emu_warp},
     {NULL, NULL},
 };
 
@@ -261,6 +375,30 @@ void uae_lua_run_handler(const char *name)
     }
 }
 
+// Keeps the emulation stopped, only handling remote requests, until one of
+// them resumes it.
+static void stopped_loop(void)
+{
+    pause_sound();
+    int64_t next_frame_at = 0;
+    while (g_stop_requested && quit_program == 0) {
+        // The main thread waits for a video frame before it draws the user
+        // interface and checks for quit, so keep it supplied with frames.
+        // A dummy frame makes it show the previous frame again.
+        int64_t now = fsemu_time_us();
+        if (now >= next_frame_at) {
+            fsemu_video_frame_t *frame = fsemu_video_alloc_frame();
+            frame->dummy = true;
+            fsemu_video_post_frame(frame);
+            next_frame_at = now + 20000;
+        }
+        if (!luaengine_remote_poll()) {
+            sleep_millis(1);
+        }
+    }
+    resume_sound();
+}
+
 void uae_lua_service(void)
 {
     if (g_luaengine_state == NULL) {
@@ -272,11 +410,20 @@ void uae_lua_service(void)
     while (g_pending_frames > 0) {
         g_pending_frames -= 1;
         g_frame += 1;
+        if (g_step_frames > 0) {
+            g_step_frames -= 1;
+            if (g_step_frames == 0) {
+                g_stop_requested = true;
+            }
+        }
         run_frame_callbacks();
         resume_due_tasks();
     }
     if (new_frame) {
         luaengine_remote_poll();
+    }
+    if (g_stop_requested) {
+        stopped_loop();
     }
 }
 
@@ -293,6 +440,8 @@ void uae_lua_free(void)
     g_tasks.clear();
     g_frame_callbacks.clear();
     g_pending_frames = 0;
+    g_stop_requested = false;
+    g_step_frames = 0;
     if (g_luaengine_state != NULL) {
         lua_close(g_luaengine_state);
         g_luaengine_state = NULL;
