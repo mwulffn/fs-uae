@@ -280,6 +280,11 @@ EmuTOS and boots that.
 - FS-UAE needs a window; it cannot run without a display.
 - While the emulation is stopped, the window shows the last frame. The emulated screen is not
   redrawn when memory is changed.
+- After a state has been loaded (`state.load` or `state.restore`), the frame is two lines lower
+  than before: `video.size()` returns 756x574 instead of 756x576 on a PAL A1200 configuration, and
+  screenshots get that size. The lines which remain are the same, so compare screenshots taken
+  before and after a load line by line from the top, not as whole files. The cause has not been
+  found; it is in how the display is set up after a restore, not in the Lua functions.
 - Lua runs on the emulation thread. A script which loops without waiting stops the emulation.
 - Breakpoints and instruction steps have not been tested with the JIT compiler (x86 only).
 - The tests have only been run with an A1200 Kickstart 3.1 ROM on macOS.
