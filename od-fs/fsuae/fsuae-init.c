@@ -160,6 +160,9 @@ static bool init_python(int argc, char* argv[]) {
     PyConfig config;
     PyConfig_InitPythonConfig(&config);
     config.isolated = 1;
+    // The arguments are for FS-UAE. Without this, Python reads them as its own
+    // command line, and exits when it sees an option it does not know.
+    config.parse_argv = 0;
     // PyConfig_SetString(&config, &config.home, value);
 
     char* python_home = NULL;
