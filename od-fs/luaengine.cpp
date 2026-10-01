@@ -191,13 +191,27 @@ bool luaengine_stop_requested(void)
     return g_stop_requested;
 }
 
+// Pushes the result of dbg.lookup(address), which is nil if no symbol is
+// known for the address.
+static void push_symbol(lua_State *L, uaecptr address)
+{
+    lua_getglobal(L, "dbg");
+    lua_getfield(L, -1, "lookup");
+    lua_remove(L, -2);
+    lua_pushinteger(L, address);
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+    }
+}
+
 void luaengine_push_stop_info(lua_State *L)
 {
     if (!g_stop_requested) {
         lua_pushboolean(L, false);
         return;
     }
-    lua_createtable(L, 0, 5);
+    lua_createtable(L, 0, 7);
     lua_pushstring(L, g_stop_info.reason);
     lua_setfield(L, -2, "reason");
     lua_pushinteger(L, m68k_getpc());
@@ -211,6 +225,13 @@ void luaengine_push_stop_info(lua_State *L)
     if (g_stop_info.vector != -1) {
         lua_pushinteger(L, g_stop_info.vector);
         lua_setfield(L, -2, "vector");
+    }
+    // The names of the addresses, if symbols have been loaded.
+    push_symbol(L, m68k_getpc());
+    lua_setfield(L, -2, "symbol");
+    if (g_stop_info.id != 0) {
+        push_symbol(L, g_stop_info.address);
+        lua_setfield(L, -2, "address_symbol");
     }
 }
 
@@ -416,6 +437,8 @@ void uae_lua_init_state(lua_State *L)
     luaengine_open_video(L);
     // Adds functions to the mem table.
     luaengine_open_dbg(L);
+    // Adds functions to the dbg table.
+    luaengine_open_symbols(L);
 }
 
 void uae_lua_load(const TCHAR *filename)
