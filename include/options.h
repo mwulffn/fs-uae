@@ -877,6 +877,9 @@ struct uae_prefs {
 	int dfxclickchannelmask;
 
 	TCHAR luafiles[MAX_LUA_STATES][MAX_DPATH];
+#ifdef FSUAE
+	int lua_port;
+#endif
 
 	/* Target specific options */
 

@@ -20,20 +20,14 @@
 
 lua_State *g_luaengine_state;
 
-// A task is a Lua coroutine which can wait for emulated frames to pass.
-struct luaengine_task {
-    lua_State *thread;
-    // Registry reference keeping the thread alive.
-    int ref;
-    int64_t wake_frame;
-};
-
 static std::vector<luaengine_task *> g_tasks;
 // Registry references to the functions registered with emu.on_frame.
 static std::vector<int> g_frame_callbacks;
 static int64_t g_frame;
 // Number of vsyncs seen since the last call to uae_lua_service.
 static int g_pending_frames;
+// The task being resumed, or NULL.
+static luaengine_task *g_current_task;
 
 void luaengine_log_error(lua_State *L, const char *context)
 {
@@ -62,7 +56,17 @@ static void concat_print_arguments(lua_State *L)
 static int l_print(lua_State *L)
 {
     concat_print_arguments(L);
-    write_log("[LUA] %s\n", lua_tostring(L, -1));
+    size_t len;
+    const char *text = lua_tolstring(L, -1, &len);
+    if (g_current_task != NULL && g_current_task->client != -1) {
+        g_current_task->output.append(text, len);
+        g_current_task->output += '\n';
+    } else {
+        write_log("[LUA] %s\n", text);
+        std::string fields = "\"text\":";
+        luaengine_json_append_string(fields, text, len);
+        luaengine_remote_send_event("print", fields);
+    }
     return 0;
 }
 
@@ -72,7 +76,10 @@ static void resume_task(luaengine_task *task, int nargs)
 {
     lua_State *L = g_luaengine_state;
     int nresults;
+    luaengine_task *previous_task = g_current_task;
+    g_current_task = task;
     int status = lua_resume(task->thread, L, nargs, &nresults);
+    g_current_task = previous_task;
     if (status == LUA_YIELD) {
         // The yielded value is the number of frames to wait.
         lua_Integer frames = nresults > 0 ? lua_tointeger(task->thread, -1) : 1;
@@ -81,7 +88,9 @@ static void resume_task(luaengine_task *task, int nargs)
         g_tasks.push_back(task);
         return;
     }
-    if (status != LUA_OK) {
+    if (task->client != -1) {
+        luaengine_remote_task_finished(task, status == LUA_OK, nresults);
+    } else if (status != LUA_OK) {
         luaL_traceback(L, task->thread, lua_tostring(task->thread, -1), 0);
         luaengine_log_error(L, "Error");
     }
@@ -89,12 +98,14 @@ static void resume_task(luaengine_task *task, int nargs)
     delete task;
 }
 
-void luaengine_start_task(lua_State *L, int nargs)
+void luaengine_start_task(lua_State *L, int nargs, int client, const char *request_id)
 {
     luaengine_task *task = new luaengine_task();
     task->thread = lua_newthread(L);
     task->ref = luaL_ref(L, LUA_REGISTRYINDEX);
     task->wake_frame = 0;
+    task->client = client;
+    task->request_id = request_id;
     lua_xmove(L, task->thread, nargs + 1);
     resume_task(task, nargs);
 }
@@ -221,12 +232,15 @@ void uae_lua_loadall(void)
             have_scripts = true;
         }
     }
-    if (!have_scripts) {
+    if (!have_scripts && currprefs.lua_port == 0) {
         return;
     }
-    if (g_luaengine_state == NULL) {
-        g_luaengine_state = luaL_newstate();
-        uae_lua_init_state(g_luaengine_state);
+    // The emulation is started again when a new configuration is loaded.
+    uae_lua_free();
+    g_luaengine_state = luaL_newstate();
+    uae_lua_init_state(g_luaengine_state);
+    if (currprefs.lua_port != 0) {
+        luaengine_remote_open(currprefs.lua_port);
     }
     for (int i = 0; i < MAX_LUA_STATES; i++) {
         uae_lua_load(currprefs.luafiles[i]);
@@ -252,11 +266,17 @@ void uae_lua_service(void)
     if (g_luaengine_state == NULL) {
         return;
     }
+    // This function is also called when the debugger is active, possibly
+    // after every instruction, so the socket is only checked once per frame.
+    bool new_frame = g_pending_frames > 0;
     while (g_pending_frames > 0) {
         g_pending_frames -= 1;
         g_frame += 1;
         run_frame_callbacks();
         resume_due_tasks();
+    }
+    if (new_frame) {
+        luaengine_remote_poll();
     }
 }
 
@@ -266,6 +286,7 @@ void uae_lua_init(void)
 
 void uae_lua_free(void)
 {
+    luaengine_remote_close();
     for (luaengine_task *task : g_tasks) {
         delete task;
     }

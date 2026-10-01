@@ -2187,6 +2187,11 @@ void cfgfile_save_options (struct zfile *f, struct uae_prefs *p, int type)
 			cfgfile_write_path2(f, _T("lua"), p->luafiles[i], PATH_NONE);
 		}
 	}
+#ifdef FSUAE
+	if (p->lua_port) {
+		cfgfile_write(f, _T("lua_port"), _T("%d"), p->lua_port);
+	}
+#endif
 #endif
 
 	if (p->trainerfile[0])
@@ -3649,6 +3654,11 @@ static int cfgfile_parse_host (struct uae_prefs *p, TCHAR *option, TCHAR *value)
 		}
 		return 1;
 	}
+#ifdef FSUAE
+	if (cfgfile_intval(option, value, _T("lua_port"), &p->lua_port, 1)) {
+		return 1;
+	}
+#endif
 #endif
 
 	if (cfgfile_strval (option, value, _T("gfx_autoresolution_min_vertical"), &p->gfx_autoresolution_minv, vertmode, 0)) {
@@ -8683,6 +8693,9 @@ void default_prefs (struct uae_prefs *p, bool reset, int type)
 	for (int i = 0; i < MAX_LUA_STATES; i++) {
 		p->luafiles[i][0] = 0;
 	}
+#ifdef FSUAE
+	p->lua_port = 0;
+#endif
 #endif
 	configure_rom (p, roms, 0);
 	_tcscpy (p->romextfile, _T(""));

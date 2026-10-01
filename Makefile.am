@@ -1851,6 +1851,8 @@ liblua_a_SOURCES = \
 	od-fs/lua/src/lzio.h
 
 libuae_a_SOURCES += \
+	od-fs/luaengine-json.cpp \
+	od-fs/luaengine-remote.cpp \
 	od-fs/luaengine.cpp \
 	od-fs/luaengine.h
 endif
