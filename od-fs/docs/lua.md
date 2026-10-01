@@ -166,10 +166,49 @@ The registers are fields which can be read and assigned: `cpu.d0` to `cpu.d7`, `
 | `dbg.step(n)` | Run `n` instructions (default 1) and stop. Returns the same as `dbg.wait`. |
 | `dbg.stopped()` | The same table as `dbg.wait` returns if the emulation is stopped, otherwise false. |
 | `dbg.command(text)` | Run a command in the built-in UAE debugger and return its output. |
+| `dbg.load_symbols(path, name, frames)` | Load the symbols of a running program (see below). |
+| `dbg.symbol(name)` | The address of a symbol, or nil. |
+| `dbg.lookup(address)` | The name for an address inside a loaded program, such as `"update"` or `"update+$1a"`, or nil. |
+| `dbg.unload_symbols(name)` | Forget the symbols of a program, or of all programs when called without a name. |
 
 The table from `dbg.wait` has `reason` (`"breakpoint"`, `"tap"`, `"step"`, `"exception"`, `"halt"`
 or `"pause"`) and `pc`. For breakpoints, taps and exceptions it also has `id` and `address`, and
 for exceptions and halts `vector`.
+
+#### Symbols
+
+When a program is started by AmigaDOS, it is loaded wherever there is free memory, so its
+addresses differ from run to run. `dbg.load_symbols` works out the addresses of the names in the
+program:
+
+```lua
+local program = dbg.load_symbols("/path/to/build/game", "game")
+dbg.bpset("update_player")                  -- dbg.bpset takes symbol names
+print(mem.peek_u16(program.symbols.lives))
+print(dbg.lookup(cpu.pc))                   --> update_player+$1a
+```
+
+- `path` is the executable on the host: the same file which was put on the Amiga disk. It must be
+  an Amiga executable (hunk format) which still has its symbols. vasm and vlink keep them by
+  default; do not link with `-s`. Local labels are only there if the assembler was told to keep
+  them.
+- `name` is the name of the program on the Amiga, and defaults to the file name of `path`. The
+  program must be running: it is found among the tasks of the Amiga, either as the command of a
+  CLI or as a process with that name.
+- `frames` makes the function wait up to that many frames for the program to start. Without it,
+  the function fails if the program is not running.
+- The result has `name`, `path`, `segments` (a list of `{address = ..., size = ...}`, one for each
+  hunk of the executable) and `symbols` (name to address).
+- C compilers put an underscore before the names from the source code. `program.symbols.main` and
+  `dbg.symbol("main")` also find `_main`.
+- When symbols are loaded, the table from `dbg.wait` and the `stopped` event also have `symbol`
+  (the name for `pc`) and `address_symbol` (the name for `address`) where the addresses are inside
+  a loaded program.
+
+The symbols are those in the executable, so this does not help with programs which unpack or
+move themselves after they are loaded, and overlays are not supported. Source files and line
+numbers are not read. Load the symbols again after the program has been started again, as it will
+be at another address.
 
 Exception watches catch a program going wrong:
 
@@ -304,7 +343,8 @@ FSUAE_TEST_KICKSTART=/path/to/kickstart.rom python3 -m unittest
 the standard configuration of that model. `FSUAE_TEST_OPTIONS` adds configuration options to all
 tests, for example `FSUAE_TEST_OPTIONS=cpu_model=68040,fpu_model=68040`. Most tests boot a small
 disk image which they create themselves. `test_public_disk.py` downloads the free operating system
-EmuTOS and boots that.
+EmuTOS and boots that. `test_symbols.py` builds a program with vasm and vlink and puts it on a
+disk with xdftool (from amitools); it is skipped if those tools are not installed.
 
 The tests start FS-UAE with SDL hints in the environment which keep its window from taking the
 keyboard focus, so they can run while the computer is used for something else. The same works

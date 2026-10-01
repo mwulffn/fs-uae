@@ -10,6 +10,7 @@ FSUAE_TEST_OPTIONS adds configuration options to all tests, for example
 """
 
 import os
+import shutil
 import socket
 import struct
 import subprocess
@@ -106,6 +107,43 @@ def test_env() -> dict[str, str]:
     return env
 
 
+def run_tool(*arguments: str | Path) -> None:
+    """Run one of the Amiga development tools, which must be installed."""
+    if shutil.which(str(arguments[0])) is None:
+        raise unittest.SkipTest(f"{arguments[0]} is not installed")
+    subprocess.run([str(argument) for argument in arguments], check=True, capture_output=True)
+
+
+def build_dos_disk(directory: Path) -> Path:
+    """Build testprog.s and a floppy which runs it from the startup-sequence.
+
+    This uses vasm and vlink to build the program, and xdftool (from
+    amitools) to create the disk image. The files are written to directory:
+    testprog (the executable with symbols), testprog.stripped (without)
+    and dos.adf. Returns the path of the disk image.
+    """
+    source = Path(__file__).with_name("testprog.s")
+    run_tool("vasmm68k_mot", "-quiet", "-Fhunk", "-o", directory / "testprog.o", source)
+    run_tool("vlink", "-bamigahunk", "-o", directory / "testprog", directory / "testprog.o")
+    run_tool(
+        "vlink",
+        "-bamigahunk",
+        "-s",
+        "-o",
+        directory / "testprog.stripped",
+        directory / "testprog.o",
+    )
+    (directory / "startup-sequence").write_text("testprog\n")
+    disk = directory / "dos.adf"
+    run_tool(
+        *("xdftool", disk, "create", "+", "format", "Test", "+", "boot", "install"),
+        *("+", "makedir", "s"),
+        *("+", "write", directory / "startup-sequence", "s/startup-sequence"),
+        *("+", "write", directory / "testprog"),
+    )
+    return disk
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -115,7 +153,12 @@ def free_port() -> int:
 class Emulator:
     """A running FS-UAE with a connected LuaClient in self.lua."""
 
-    def __init__(self, options: dict[str, str] | None = None, test_disk: bool = False) -> None:
+    def __init__(
+        self,
+        options: dict[str, str] | None = None,
+        test_disk: bool = False,
+        dos_disk: bool = False,
+    ) -> None:
         kickstart = os.environ.get("FSUAE_TEST_KICKSTART")
         if not kickstart:
             raise unittest.SkipTest("FSUAE_TEST_KICKSTART is not set")
@@ -135,6 +178,12 @@ class Emulator:
         if test_disk:
             create_test_disk(self.path / "test.adf")
             config["floppy0"] = str(self.path / "test.adf")
+        if dos_disk:
+            try:
+                config["floppy0"] = str(build_dos_disk(self.path))
+            except Exception:
+                self.directory.cleanup()
+                raise
         config.update(options or {})
         config_path = self.path / "test.uae"
         config_path.write_text("".join(f"{key}={value}\n" for key, value in config.items()))
