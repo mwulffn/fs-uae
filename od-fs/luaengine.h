@@ -40,8 +40,9 @@ int luaengine_yield_frames(
     lua_State *L, lua_Integer frames, lua_KFunction k = NULL, lua_KContext context = 0);
 
 // Stops the emulation before the next instruction, as emu.pause does. The
-// reason, and the id and address when given, are what dbg.wait returns.
-void luaengine_stop(const char *reason, int id = 0, uaecptr address = 0);
+// reason, and the id, address and vector when given, are what dbg.wait
+// returns.
+void luaengine_stop(const char *reason, int id = 0, uaecptr address = 0, int vector = -1);
 void luaengine_resume(void);
 bool luaengine_stop_requested(void);
 // Pushes a table describing why the emulation is stopped, or false.

@@ -46,6 +46,8 @@ static struct {
     const char *reason;
     int id;
     uaecptr address;
+    // The exception vector or halt reason, or -1.
+    int vector;
 } g_stop_info;
 
 void luaengine_log_error(lua_State *L, const char *context)
@@ -166,13 +168,14 @@ static void run_frame_callbacks(void)
     }
 }
 
-void luaengine_stop(const char *reason, int id, uaecptr address)
+void luaengine_stop(const char *reason, int id, uaecptr address, int vector)
 {
     g_stop_requested = true;
     g_step_frames = 0;
     g_stop_info.reason = reason;
     g_stop_info.id = id;
     g_stop_info.address = address;
+    g_stop_info.vector = vector;
     // Make the CPU loop call uae_lua_service before the next instruction.
     set_special(SPCFLAG_BRK);
 }
@@ -194,7 +197,7 @@ void luaengine_push_stop_info(lua_State *L)
         lua_pushboolean(L, false);
         return;
     }
-    lua_createtable(L, 0, 4);
+    lua_createtable(L, 0, 5);
     lua_pushstring(L, g_stop_info.reason);
     lua_setfield(L, -2, "reason");
     lua_pushinteger(L, m68k_getpc());
@@ -204,6 +207,10 @@ void luaengine_push_stop_info(lua_State *L)
         lua_setfield(L, -2, "id");
         lua_pushinteger(L, g_stop_info.address);
         lua_setfield(L, -2, "address");
+    }
+    if (g_stop_info.vector != -1) {
+        lua_pushinteger(L, g_stop_info.vector);
+        lua_setfield(L, -2, "vector");
     }
 }
 

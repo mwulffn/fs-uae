@@ -128,6 +128,10 @@ Addresses and values are integers. Functions raise a Lua error when given invali
 | `mem.tap_write(first, last, f)` | The same when the CPU writes to the range. |
 | `mem.tap_remove(id)` | Remove a tap, or all taps when called without an id. |
 
+Writing memory from Lua also clears the instruction cache of the emulated CPU (68020 and later),
+so changed code is run. The instruction at `cpu.pc` may already have been fetched; assign
+`cpu.pc = cpu.pc` to fetch it again after changing it.
+
 Notes on taps:
 
 - If the callback returns an integer, that value is read or written instead.
@@ -155,14 +159,36 @@ The registers are fields which can be read and assigned: `cpu.d0` to `cpu.d7`, `
 | `dbg.bpset(address, f)` | Set a breakpoint and return its id. Without `f` the emulation stops there. With `f`, `f(address)` is called and the emulation continues, unless `f` calls `emu.pause()`. |
 | `dbg.bpclear(id)` | Remove a breakpoint, or all breakpoints when called without an id. |
 | `dbg.bplist()` | A list of `{id = ..., address = ...}`. |
+| `dbg.exset(vector, f)` | Watch for a CPU exception and return an id. `vector` is the vector number, `"crash"` or `"halt"` (see below). Without `f` the emulation stops; with `f`, `f(vector, pc)` is called and the emulation continues, unless `f` calls `emu.pause()`. |
+| `dbg.exclear(id)` | Remove an exception watch, or all of them when called without an id. |
 | `dbg.go()` | Continue the emulation (the same as `emu.resume`). |
 | `dbg.wait(frames)` | Wait until the emulation stops and return a table saying why. With `frames`, give up after that many frames and return nothing. |
 | `dbg.step(n)` | Run `n` instructions (default 1) and stop. Returns the same as `dbg.wait`. |
 | `dbg.stopped()` | The same table as `dbg.wait` returns if the emulation is stopped, otherwise false. |
 | `dbg.command(text)` | Run a command in the built-in UAE debugger and return its output. |
 
-The table from `dbg.wait` has `reason` (`"breakpoint"`, `"tap"`, `"step"` or `"pause"`) and `pc`,
-and for breakpoints and taps also `id` and `address`.
+The table from `dbg.wait` has `reason` (`"breakpoint"`, `"tap"`, `"step"`, `"exception"`, `"halt"`
+or `"pause"`) and `pc`. For breakpoints, taps and exceptions it also has `id` and `address`, and
+for exceptions and halts `vector`.
+
+Exception watches catch a program going wrong:
+
+- `dbg.exset("crash")` matches the exceptions which normally mean that a program has crashed: bus
+  error (vector 2), address error (3), illegal instruction (4), division by zero (5) and the
+  unimplemented line A and line F instructions (10 and 11). It also matches the CPU halting,
+  which is what happens after a double fault. Interrupts, TRAP instructions and privilege
+  violations are not included, as the operating system uses them. On a 68040 or 68060, line F
+  exceptions are also normal (unimplemented floating point instructions); watch the vectors you
+  want by number there.
+- The emulation stops at the first instruction of the exception handler, so the exception stack
+  frame can be inspected. `address` in the stop information (and `pc` given to the callback) is
+  the instruction which caused the exception.
+- For a halt, `reason` is `"halt"` and `vector` holds the halt reason of the UAE core (2 is a
+  double fault). When several exceptions happen within one instruction, there is one stop, and
+  the last one is reported. Lua keeps working while the CPU is halted; `emu.reset()` or restoring
+  a state gets it going again.
+- A guru meditation which the operating system raises itself (by calling `Alert`) is not an
+  exception, and is not caught unless it follows one of the exceptions above.
 
 A breakpoint stops the emulation *before* the instruction at its address is run. While there are
 breakpoints, the emulation is slower, because they are checked before every instruction.

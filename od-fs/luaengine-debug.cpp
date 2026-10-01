@@ -1,5 +1,5 @@
-// Lua breakpoints, instruction stepping and memory taps (the dbg table and
-// mem.tap_*).
+// Lua breakpoints, instruction stepping, exception watches and memory taps
+// (the dbg table and mem.tap_*).
 //
 // Breakpoints do not use the breakpoints of the UAE debugger. While there
 // are breakpoints (or instructions left to step), uae_lua_service is called
@@ -39,7 +39,21 @@ struct lua_tap {
     int callback;
 };
 
+// A request to stop or call a function when the CPU takes an exception.
+struct lua_exception_watch {
+    int id;
+    // The exception vector number, or one of the values below.
+    int vector;
+    int callback;
+};
+
+// Exceptions which normally mean that the program has crashed.
+#define VECTOR_CRASH -1
+// The CPU has halted (after a double fault, for example).
+#define VECTOR_HALT -2
+
 static std::vector<lua_breakpoint> g_breakpoints;
+static std::vector<lua_exception_watch> g_exception_watches;
 static std::vector<lua_tap> g_taps;
 static int g_next_id = 1;
 // When not 0, the number of instructions left to run before stopping.
@@ -141,6 +155,64 @@ void uae_lua_memwatch(int num, uaecptr addr, int rwi, int size, uae_u32 *valp)
     }
 }
 
+static bool is_crash_vector(int nr)
+{
+    // Bus error, address error, illegal instruction, division by zero and
+    // the unimplemented (line A and line F) instructions.
+    return nr == 2 || nr == 3 || nr == 4 || nr == 5 || nr == 10 || nr == 11;
+}
+
+// Runs the watches matching the vector. reason is "exception" or "halt",
+// and number is the exception vector or the halt reason.
+static void run_exception_watches(const char *reason, int vector, int number)
+{
+    lua_State *L = g_luaengine_state;
+    if (L == NULL || g_exception_watches.empty()) {
+        return;
+    }
+    // A halted CPU tries the failing instruction again now and then (when
+    // the CPU loop is restarted), which is of no interest.
+    if (regs.halted && vector != VECTOR_HALT) {
+        return;
+    }
+    uaecptr pc = regs.instruction_pc;
+    // Callbacks can add and remove watches.
+    std::vector<lua_exception_watch> watches = g_exception_watches;
+    for (const lua_exception_watch &watch : watches) {
+        bool crash = vector == VECTOR_HALT || is_crash_vector(vector);
+        if (watch.vector != vector && !(watch.vector == VECTOR_CRASH && crash)) {
+            continue;
+        }
+        bool stop = watch.callback == LUA_NOREF;
+        if (!stop) {
+            bool was_stopped = luaengine_stop_requested();
+            bool taps_were_suspended = g_taps_suspended;
+            g_taps_suspended = true;
+            lua_rawgeti(L, LUA_REGISTRYINDEX, watch.callback);
+            lua_pushinteger(L, number);
+            lua_pushinteger(L, pc);
+            if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+                luaengine_log_error(L, "Error in exception callback");
+            }
+            g_taps_suspended = taps_were_suspended;
+            stop = !was_stopped && luaengine_stop_requested();
+        }
+        if (stop) {
+            luaengine_stop(reason, watch.id, pc, number);
+        }
+    }
+}
+
+void uae_lua_exception(int nr)
+{
+    run_exception_watches("exception", nr, nr);
+}
+
+void uae_lua_halted(int reason)
+{
+    run_exception_watches("halt", VECTOR_HALT, reason);
+}
+
 // dbg.bpset(address, callback) sets a breakpoint and returns its id.
 // Without a callback, the emulation stops when the breakpoint is reached.
 // With one, callback(address) is called and the emulation continues, unless
@@ -191,6 +263,59 @@ static int l_dbg_bplist(lua_State *L)
         lua_rawseti(L, -2, (lua_Integer) i + 1);
     }
     return 1;
+}
+
+// dbg.exset(vector, callback) watches for a CPU exception and returns an
+// id. vector is the exception vector number (4 is illegal instruction, 32
+// is TRAP #0 and so on), "crash" for the exceptions which normally mean that
+// the program has crashed (and for the CPU halting), or "halt" for the CPU
+// halting only. Without a callback, the emulation stops when the exception
+// is taken, at the first instruction of the exception handler. With one,
+// callback(vector, pc) is called and the emulation continues, unless the
+// callback calls emu.pause. pc is the address of the instruction which
+// caused the exception. For a halt, the callback gets the halt reason of
+// the UAE core instead of a vector.
+static int l_dbg_exset(lua_State *L)
+{
+    lua_exception_watch watch;
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        const char *name = lua_tostring(L, 1);
+        if (strcmp(name, "crash") == 0) {
+            watch.vector = VECTOR_CRASH;
+        } else if (strcmp(name, "halt") == 0) {
+            watch.vector = VECTOR_HALT;
+        } else {
+            return luaL_argerror(L, 1, "must be a vector number, 'crash' or 'halt'");
+        }
+    } else {
+        lua_Integer vector = luaL_checkinteger(L, 1);
+        luaL_argcheck(L, vector >= 2 && vector <= 255, 1, "must be 2 to 255");
+        watch.vector = (int) vector;
+    }
+    watch.id = g_next_id++;
+    watch.callback = LUA_NOREF;
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TFUNCTION);
+        lua_settop(L, 2);
+        watch.callback = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    g_exception_watches.push_back(watch);
+    lua_pushinteger(L, watch.id);
+    return 1;
+}
+
+// dbg.exclear(id) removes an exception watch, dbg.exclear() removes all.
+static int l_dbg_exclear(lua_State *L)
+{
+    bool all = lua_isnoneornil(L, 1);
+    lua_Integer id = all ? 0 : luaL_checkinteger(L, 1);
+    for (size_t i = g_exception_watches.size(); i > 0; i--) {
+        if (all || g_exception_watches[i - 1].id == id) {
+            luaL_unref(L, LUA_REGISTRYINDEX, g_exception_watches[i - 1].callback);
+            g_exception_watches.erase(g_exception_watches.begin() + i - 1);
+        }
+    }
+    return 0;
 }
 
 // dbg.go() continues after a stop. This is the same as emu.resume.
@@ -250,6 +375,8 @@ static const luaL_Reg dbg_functions[] = {
     {"bplist", l_dbg_bplist},
     {"bpset", l_dbg_bpset},
     {"command", l_dbg_command},
+    {"exclear", l_dbg_exclear},
+    {"exset", l_dbg_exset},
     {"go", l_dbg_go},
     {"step", l_dbg_step},
     {"stopped", l_dbg_stopped},
@@ -332,6 +459,7 @@ void luaengine_debug_free(void)
     }
     g_taps.clear();
     g_breakpoints.clear();
+    g_exception_watches.clear();
     g_step_instructions = 0;
     g_taps_suspended = false;
 }

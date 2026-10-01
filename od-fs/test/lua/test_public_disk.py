@@ -120,6 +120,15 @@ class EmuTosTest(unittest.TestCase):
         self.lua.call("state.restore(snapshot) emu.wait_frames(5)")
         self.assertEqual(self.screen(), before)
 
+    def test_no_crash_exceptions_while_running(self) -> None:
+        # Interrupts and the traps the operating system uses are exceptions
+        # too, but they are not in the "crash" group.
+        self.lua.call("dbg.exset('crash') input.mouse(5, 5)")
+        try:
+            self.assertIsNone(self.lua.eval("dbg.wait(100)"))
+        finally:
+            self.lua.call("dbg.exclear() emu.resume()")
+
     def test_program_counter_is_in_ram(self) -> None:
         # EmuTOS runs from RAM, not from the Kickstart ROM.
         self.assertLess(self.lua.eval("cpu.pc"), 0x200000)

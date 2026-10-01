@@ -218,6 +218,103 @@ class TapTest(DebugTestCase):
             self.lua.call("for i = 1, 30 do mem.tap_write(0x70000, 0x70000, function() end) end")
 
 
+class ExceptionTest(DebugTestCase):
+    """Tests of dbg.exset, which patch the test program to cause exceptions."""
+
+    ILLEGAL = 0x4AFC
+    TRAP_0 = 0x4E40
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.lua.call("emu.pause() exception_snapshot = state.snapshot()")
+
+    def tearDown(self) -> None:
+        self.lua.call("dbg.exclear() state.restore(exception_snapshot)")
+        super().tearDown()
+
+    def patch(self, opcode: int) -> None:
+        """Replace the ADDQ instruction of the test program."""
+        self.lua.call(f"mem.poke_u16({self.addq}, {opcode})")
+
+    def test_illegal_instruction_stops(self) -> None:
+        self.patch(self.ILLEGAL)
+        watch = self.lua.eval("dbg.exset(4)")
+        info = self.lua.eval("dbg.go() return dbg.wait(100)")
+        self.assertEqual(info["reason"], "exception")
+        self.assertEqual(info["vector"], 4)
+        self.assertEqual(info["id"], watch)
+        self.assertEqual(info["address"], self.addq)
+        # The emulation stops at the first instruction of the handler.
+        self.assertEqual(info["pc"], self.lua.eval("mem.peek_u32(cpu.vbr + 4 * 4)"))
+
+    def test_stopped_event_has_the_vector(self) -> None:
+        self.patch(self.ILLEGAL)
+        self.lua.call("dbg.exset(4) dbg.go()")
+        event = self.lua.wait_event("stopped")
+        self.assertEqual((event["reason"], event["vector"]), ("exception", 4))
+
+    def test_crash_group(self) -> None:
+        self.patch(self.ILLEGAL)
+        self.lua.call("dbg.exset('crash')")
+        info = self.lua.eval("dbg.go() return dbg.wait(100)")
+        self.assertEqual((info["reason"], info["vector"]), ("exception", 4))
+
+    def test_division_by_zero(self) -> None:
+        # MOVEQ #0,D1 and DIVU.W D1,D0
+        self.lua.call(rf"mem.write_range({self.addq}, '\x72\x00\x80\xc1')")
+        self.lua.call("dbg.exset('crash')")
+        info = self.lua.eval("dbg.go() return dbg.wait(100)")
+        self.assertEqual((info["vector"], info["address"]), (5, self.addq + 2))
+
+    def test_callback(self) -> None:
+        self.patch(self.TRAP_0)
+        self.lua.call(
+            "exceptions = {} dbg.exset(32, function(vector, pc) "
+            "exceptions[#exceptions + 1] = {vector, pc} end)"
+        )
+        self.lua.call("dbg.go() emu.wait_frames(3)")
+        self.assertEqual(self.lua.eval("exceptions[1]"), [32, self.addq])
+        self.assertFalse(self.lua.eval("dbg.stopped()"))
+
+    def test_callback_can_stop_the_emulation(self) -> None:
+        self.patch(self.TRAP_0)
+        self.lua.call("dbg.exset(32, function() emu.pause() end)")
+        info = self.lua.eval("dbg.go() return dbg.wait(100)")
+        self.assertEqual((info["reason"], info["vector"]), ("exception", 32))
+
+    def test_other_vectors_do_not_match(self) -> None:
+        self.patch(self.TRAP_0)
+        self.lua.call("dbg.exset(4) dbg.exset('crash') dbg.go()")
+        self.assertIsNone(self.lua.eval("dbg.wait(5)"))
+
+    def test_exclear(self) -> None:
+        self.patch(self.ILLEGAL)
+        self.lua.call("local id = dbg.exset(4) dbg.exclear(id) dbg.go()")
+        self.assertIsNone(self.lua.eval("dbg.wait(5)"))
+
+    def test_halt(self) -> None:
+        if self.lua.eval("emu.config_get('cpu_model')") != "68000":
+            self.skipTest("the double fault used here needs a 68000")
+        # With an odd supervisor stack pointer, the illegal instruction
+        # exception causes an address error, and that one halts the CPU. All
+        # of it happens within one instruction, so there is one stop, and
+        # the last cause is the one reported.
+        self.patch(self.ILLEGAL)
+        self.lua.call("cpu.isp = 0x1001 dbg.exset('crash')")
+        info = self.lua.eval("dbg.go() return dbg.wait(100)")
+        self.assertEqual(info["reason"], "halt")
+        # 2 is the reason "double fault" in the UAE core.
+        self.assertEqual(info["vector"], 2)
+        # Lua still works while the CPU is halted.
+        self.assertEqual(self.lua.call("dbg.go() emu.wait_frames(3) return 1"), [1])
+
+    def test_invalid_vector(self) -> None:
+        with self.assertRaisesRegex(LuaError, "must be a vector number"):
+            self.lua.call("dbg.exset('nonsense')")
+        with self.assertRaisesRegex(LuaError, "must be 2 to 255"):
+            self.lua.call("dbg.exset(1000)")
+
+
 class CommandTest(DebugTestCase):
     def test_command_returns_output(self) -> None:
         self.lua.call("emu.pause()")

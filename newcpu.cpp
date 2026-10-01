@@ -3438,6 +3438,9 @@ static void ExceptionX (int nr, uaecptr address, uaecptr oldpc)
 #ifdef DEBUGGER
 	debug_exception(nr);
 #endif
+#if defined(FSUAE) && defined(WITH_LUA)
+	uae_lua_exception(nr);
+#endif
 	m68k_resumestopped();
 
 #ifdef CPUEMU_13
@@ -4392,6 +4395,9 @@ static bool haltloop_do(int vsynctimeline, frame_time_t rpt_end, int lines)
 			if (regs.spcflags & (SPCFLAG_BRK | SPCFLAG_MODE_CHANGE)) {
 				if (regs.spcflags & SPCFLAG_BRK) {
 					unset_special(SPCFLAG_BRK);
+#if defined(FSUAE) && defined(WITH_LUA)
+					uae_lua_service();
+#endif
 	#ifdef DEBUGGER
 					if (debugging)
 						debug();
@@ -5715,6 +5721,9 @@ void cpu_halt(int id)
 		}
 		regs.halted = id;
 		gui_data.cpu_halted = id;
+#if defined(FSUAE) && defined(WITH_LUA)
+		uae_lua_halted(id);
+#endif
 		gui_led(LED_CPU, 0, -1);
 		if (id >= 0) {
 			regs.intmask = 7;
