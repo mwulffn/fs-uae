@@ -158,6 +158,17 @@ static void run_frame_callbacks(void)
     }
 }
 
+int luaengine_yield_frames(
+    lua_State *L, lua_Integer frames, lua_KFunction k, lua_KContext context)
+{
+    if (g_stop_requested) {
+        g_step_frames = frames;
+        g_stop_requested = false;
+    }
+    lua_pushinteger(L, frames);
+    return lua_yieldk(L, 1, context, k);
+}
+
 static int l_emu_log(lua_State *L)
 {
     write_log("[LUA] %s\n", luaL_checkstring(L, 1));
@@ -231,10 +242,8 @@ static int l_emu_step(lua_State *L)
 {
     lua_Integer frames = luaL_optinteger(L, 1, 1);
     luaL_argcheck(L, frames >= 1, 1, "must be at least 1");
-    g_step_frames = frames;
-    g_stop_requested = false;
-    lua_pushinteger(L, frames);
-    return lua_yield(L, 1);
+    g_stop_requested = true;
+    return luaengine_yield_frames(L, frames);
 }
 
 static int l_emu_warp(lua_State *L)
@@ -325,6 +334,7 @@ void uae_lua_init_state(lua_State *L)
     luaengine_open_cpu(L);
     luaengine_open_input(L);
     luaengine_open_mem(L);
+    luaengine_open_state(L);
 }
 
 void uae_lua_load(const TCHAR *filename)

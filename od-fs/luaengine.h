@@ -29,6 +29,12 @@ struct luaengine_task {
 // result is sent to that remote client as the reply to request_id.
 void luaengine_start_task(lua_State *L, int nargs, int client = -1, const char *request_id = "");
 
+// Yields the calling task until the given number of frames have been
+// emulated, and then continues in k (if not NULL), which is given context.
+// If the emulation is paused, it runs for these frames only.
+int luaengine_yield_frames(
+    lua_State *L, lua_Integer frames, lua_KFunction k = NULL, lua_KContext context = 0);
+
 // Logs the error message on top of the stack and pops it.
 void luaengine_log_error(lua_State *L, const char *context);
 
@@ -37,6 +43,7 @@ void luaengine_log_error(lua_State *L, const char *context);
 void luaengine_open_cpu(lua_State *L);
 void luaengine_open_input(lua_State *L);
 void luaengine_open_mem(lua_State *L);
+void luaengine_open_state(lua_State *L);
 
 // luaengine-json.cpp
 

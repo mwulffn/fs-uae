@@ -1856,6 +1856,7 @@ libuae_a_SOURCES += \
 	od-fs/luaengine-json.cpp \
 	od-fs/luaengine-mem.cpp \
 	od-fs/luaengine-remote.cpp \
+	od-fs/luaengine-state.cpp \
 	od-fs/luaengine.cpp \
 	od-fs/luaengine.h
 endif
