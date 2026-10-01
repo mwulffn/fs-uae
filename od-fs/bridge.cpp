@@ -123,11 +123,23 @@ void uae_fs_end_frame()
 
     // Writing the configuration as text takes about a millisecond, which is
     // a third of the time of a frame in warp mode. The UI only needs it to
-    // show the current settings, so it is sent at most ten times per second
-    // instead of after every frame.
+    // show the current settings, so it is only sent when the UAE core says
+    // the configuration has changed. config_changed stays set for a couple
+    // of frames while the change is applied, so the configuration is also
+    // sent for the first frame after it has been cleared.
+    //
+    // TODO: Check that every place which changes the configuration calls
+    // set_config_changed (or sets config_changed). Until that is known, the
+    // configuration is also sent once per second, so the UI cannot show old
+    // settings for longer than that.
     static int64_t last_config_sent_at;
+    static bool config_was_changed;
     int64_t now = fsemu_time_us();
-    if (last_config_sent_at != 0 && now - last_config_sent_at < 100000) {
+    bool changed = config_changed != 0;
+    bool send = changed || config_was_changed || last_config_sent_at == 0 ||
+                now - last_config_sent_at >= 1000000;
+    config_was_changed = changed;
+    if (!send) {
         return;
     }
     last_config_sent_at = now;
