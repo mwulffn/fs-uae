@@ -300,8 +300,10 @@ class ExceptionTest(DebugTestCase):
         self.assertEqual((info["reason"], info["vector"]), ("exception", 32))
 
     def test_other_vectors_do_not_match(self) -> None:
+        # The "crash" group is not used here: on a 68060, the Kickstart code
+        # which handles the TRAP runs into a line F exception of its own.
         self.patch(self.TRAP_0)
-        self.lua.call("dbg.exset(4) dbg.exset('crash') dbg.go()")
+        self.lua.call("dbg.exset(4) dbg.exset(5) dbg.go()")
         self.assertIsNone(self.lua.eval("dbg.wait(5)"))
 
     def test_exclear(self) -> None:
