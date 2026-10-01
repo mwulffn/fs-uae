@@ -53,6 +53,18 @@ static void remove_closed_clients(void)
     }
 }
 
+// Writing to a client which has gone away must fail, and not kill FS-UAE
+// with SIGPIPE. Linux has a flag for that, macOS a socket option (see
+// accept_client).
+static int write_socket(uae_socket s, const char *data, int size)
+{
+#ifdef MSG_NOSIGNAL
+    return (int) send(s, data, size, MSG_NOSIGNAL);
+#else
+    return uae_socket_write(s, data, size);
+#endif
+}
+
 static void send_line(remote_client &client, std::string line)
 {
     if (client.socket == UAE_SOCKET_INVALID) {
@@ -61,7 +73,7 @@ static void send_line(remote_client &client, std::string line)
     line += '\n';
     size_t sent = 0;
     while (sent < line.size()) {
-        int n = uae_socket_write(client.socket, line.data() + sent, (int) (line.size() - sent));
+        int n = write_socket(client.socket, line.data() + sent, (int) (line.size() - sent));
         if (n <= 0) {
             close_client(client);
             return;
@@ -159,7 +171,6 @@ static void accept_client(void)
         return;
     }
 #ifdef SO_NOSIGPIPE
-    // Writing to a client which has gone away must not kill the emulator.
     const int on = 1;
     setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
 #endif

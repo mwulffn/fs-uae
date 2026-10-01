@@ -68,6 +68,13 @@ class RemoteTest(EmulatorTestCase):
             self.assertEqual(other.eval("5"), 5)
             self.assertEqual(self.lua.eval("6"), 6)
 
+    def test_client_disconnecting_before_the_reply(self) -> None:
+        with socket.create_connection(("127.0.0.1", self.emulator.port), timeout=10) as s:
+            s.sendall(
+                b'{"id": 1, "code": "emu.wait_frames(10) return string.rep(\'x\', 100000)"}\n'
+            )
+        self.assertEqual(self.lua.call("emu.wait_frames(20) return 1"), [1])
+
     def test_print_outside_request_is_sent_as_event(self) -> None:
         self.lua.call(
             "local id id = emu.on_frame(function() "
