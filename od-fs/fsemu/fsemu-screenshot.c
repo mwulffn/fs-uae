@@ -185,8 +185,10 @@ const char* fsemu_screenshot_path_for_type(const char* type) {
 static SDL_Surface* fsemu_video_surface_from_frame(fsemu_video_frame_t* frame) {
     printf("depth: %d\n", frame->depth);
     fsemu_assert(frame->depth == 16 || frame->depth == 32);
-    // FIXME: Get pitch from frame?
-    int pitch = frame->width * frame->depth / 8;
+    // The lines of the buffer can be longer than the frame is wide (the UAE
+    // frame buffer is 2048 pixels wide), so the stride of the frame must be
+    // used, when it has one.
+    int pitch = frame->stride ? frame->stride : frame->width * frame->depth / 8;
     // FIXME: We should definitively have frame->format!
     Uint32 format;
     if (frame->depth == 16) {

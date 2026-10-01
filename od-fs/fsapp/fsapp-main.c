@@ -109,6 +109,7 @@ static GList* g_windows = NULL;
 #include "fsemu-audio.h"
 #include "fsemu-audiobuffer.h"
 #include "fsemu-frame.h"
+#include "fsemu-screenshot.h"
 #include "fsemu-glvideo.h"
 #include "fsemu-input.h"
 #include "fsemu-inputdevice.h"
@@ -1522,6 +1523,8 @@ bool fsemu_init(int argc, char* argv[], int* error) {
 
     fsemu_frame_init();
     fsemu_input_init();
+    // Without this, fsemu_screenshot_capture crashes on its mutex.
+    fsemu_screenshot_init();
 
     return true;
 }
