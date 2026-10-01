@@ -128,10 +128,12 @@ void uae_fs_end_frame()
     // of frames while the change is applied, so the configuration is also
     // sent for the first frame after it has been cleared.
     //
-    // TODO: Check that every place which changes the configuration calls
-    // set_config_changed (or sets config_changed). Until that is known, the
-    // configuration is also sent once per second, so the UI cannot show old
-    // settings for longer than that.
+    // Not every place which changes the configuration sets the flag. In the
+    // UAE core, the input events for the sound volume, for ejecting a CD
+    // and for selecting an input configuration do not (found 2026-10, see
+    // issue 13 in mwulffn/fs-uae). The configuration is therefore also
+    // sent once per second, so the UI cannot show old settings for longer
+    // than that.
     static int64_t last_config_sent_at;
     static bool config_was_changed;
     int64_t now = fsemu_time_us();

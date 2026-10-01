@@ -51,6 +51,8 @@ static void floppysetwriteprotect(int n, bool writeprotected) {
     }
     currprefs.floppyslots[n].forcedwriteprotect = writeprotected;
     changed_prefs.floppyslots[n].forcedwriteprotect = writeprotected;
+    // So the UI is told about the change right away (see uae_fs_end_frame).
+    set_config_changed();
 }
 
 static fsapp_channel_t* g_channel;

@@ -58,6 +58,7 @@ static int handle_custom_action(int action, int state)
                     // changed_prefs.floppyslots[i].dfxclick = !mute;
                     currprefs.floppyslots[i].dfxclick = !mute;
                 }
+                set_config_changed();
                 /* FIXME: Use notification instead */
                 if (!mute) {
                     error_log("%s", "Floppy sounds enabled");
