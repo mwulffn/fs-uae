@@ -316,8 +316,9 @@ of such a drive is handling a request from the Amiga, a state cannot be saved; `
 `state.snapshot` then wait and try again after each frame (for up to 100 frames). Loading a state
 which was saved while a program was reading or writing files on such a drive can leave that
 program waiting forever for an answer from the file system. Take snapshots at a point where the
-program is not using the drive (for a game, after it has loaded), or use a floppy image or a
-hard disk image file, which do not have this problem.
+program is not using the drive (for a game, after it has loaded). Floppy images are emulated at
+the level of the hardware and do not go through this file system; hard disk image files have not
+been tested.
 
 ### media
 
