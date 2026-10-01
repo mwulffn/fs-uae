@@ -278,6 +278,20 @@ the standard configuration of that model. Most tests boot a small
 disk image which they create themselves. `test_public_disk.py` downloads the free operating system
 EmuTOS and boots that.
 
+The tests start FS-UAE with SDL hints in the environment which keep its window from taking the
+keyboard focus, so they can run while the computer is used for something else. The same works
+for any FS-UAE started by a script:
+
+```sh
+SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0 SDL_WINDOW_ACTIVATE_WHEN_RAISED=0 SDL_MAC_BACKGROUND_APP=1 \
+    od-fs/fs-uae config.uae
+```
+
+The last one is for macOS, and also keeps FS-UAE out of the Dock. Set `FSUAE_TEST_FOREGROUND=1`
+to run the tests with normal windows. FS-UAE does not grab the mouse unless asked to (Cmd+G or a
+middle click), and input sent with the `input` functions does not depend on the window having
+focus.
+
 ## Limitations
 
 - FS-UAE needs a window; it cannot run without a display.

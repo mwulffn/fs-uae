@@ -3,7 +3,8 @@
 The tests need a Kickstart ROM, given with the environment variable
 FSUAE_TEST_KICKSTART. The matching Amiga model (see MODELS) is given with
 FSUAE_TEST_MODEL, and defaults to A1200. FSUAE_TEST_BINARY overrides the
-path to the fs-uae executable, which defaults to od-fs/fs-uae.
+path to the fs-uae executable, which defaults to od-fs/fs-uae. The FS-UAE
+windows do not take the keyboard focus, unless FSUAE_TEST_FOREGROUND is set.
 """
 
 import os
@@ -87,6 +88,22 @@ def create_test_disk(path: Path) -> None:
     path.write_bytes(bytes(block) + bytes(901120 - 1024))
 
 
+def test_env() -> dict[str, str]:
+    """Return the environment for FS-UAE: it must not take the keyboard focus.
+
+    The SDL hints keep the window from being activated when it is shown or
+    raised, and (on macOS) keep FS-UAE out of the Dock and the app switcher,
+    so the tests can run while the computer is used for something else. Set
+    FSUAE_TEST_FOREGROUND to get the normal behaviour.
+    """
+    env = dict(os.environ)
+    if not env.get("FSUAE_TEST_FOREGROUND"):
+        env["SDL_WINDOW_ACTIVATE_WHEN_SHOWN"] = "0"
+        env["SDL_WINDOW_ACTIVATE_WHEN_RAISED"] = "0"
+        env["SDL_MAC_BACKGROUND_APP"] = "1"
+    return env
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -119,7 +136,7 @@ class Emulator:
         self.lua: LuaClient | None = None
         self.log = open(self.path / "log.txt", "w")
         self.process = subprocess.Popen(
-            [binary, str(config_path)], stdout=self.log, stderr=subprocess.STDOUT
+            [binary, str(config_path)], stdout=self.log, stderr=subprocess.STDOUT, env=test_env()
         )
         try:
             self.lua = self.connect()
