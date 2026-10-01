@@ -52,6 +52,61 @@ class StateFileTest(EmulatorTestCase):
             self.lua.call("state.save('/nonexistent/directory/file.uss')")
 
 
+class SnapshotTest(EmulatorTestCase):
+    test_disk = True
+
+    def setUp(self) -> None:
+        self.lua.call("emu.pause()")
+
+    def tearDown(self) -> None:
+        self.lua.call("emu.resume()")
+
+    def counter(self) -> int:
+        return self.lua.eval(f"mem.peek_u32({self.program + harness.COUNTER_OFFSET})")
+
+    def test_snapshot_and_restore(self) -> None:
+        self.lua.call("mem.poke_u32(0x70000, 0xaaaaaaaa) snapshot = state.snapshot()")
+        self.assertGreater(self.lua.eval("#snapshot"), 100000)
+        saved = self.counter()
+        self.lua.call("mem.poke_u32(0x70000, 0xbbbbbbbb) emu.step(100)")
+        self.assertEqual(self.counter(), saved + 100)
+        self.lua.call("state.restore(snapshot)")
+        self.assertEqual(self.lua.eval("mem.peek_u32(0x70000)"), 0xAAAAAAAA)
+        # One frame has been run after loading the state.
+        self.assertLessEqual(abs(self.counter() - (saved + 1)), 1)
+        self.assertTrue(self.lua.eval("emu.paused()"))
+
+    def test_restore_is_repeatable(self) -> None:
+        self.lua.call("snapshot = state.snapshot()")
+        counters = []
+        for _ in range(3):
+            self.lua.call("state.restore(snapshot) emu.step(10)")
+            counters.append(self.counter())
+        self.assertEqual(counters, [counters[0]] * 3)
+
+    def test_several_snapshots(self) -> None:
+        # Taking a snapshot runs to the end of the current frame, so the
+        # second one is 51 frames after the first.
+        self.lua.call("first = state.snapshot() emu.step(50) second = state.snapshot()")
+        self.lua.call("state.restore(first)")
+        first = self.counter()
+        self.lua.call("state.restore(second)")
+        self.assertEqual(self.counter(), first + 51)
+        self.lua.call("state.restore(first)")
+        self.assertEqual(self.counter(), first)
+
+    def test_snapshot_while_running(self) -> None:
+        self.lua.call("emu.resume() snapshot = state.snapshot()")
+        saved = self.counter()
+        self.lua.call("emu.wait_frames(30) state.restore(snapshot)")
+        self.assertLess(self.counter(), saved + 10)
+        self.assertFalse(self.lua.eval("emu.paused()"))
+
+    def test_restore_needs_a_snapshot(self) -> None:
+        with self.assertRaisesRegex(LuaError, "fsuae.snapshot expected"):
+            self.lua.call("state.restore('not a snapshot')")
+
+
 class MediaTest(EmulatorTestCase):
     test_disk = True
 

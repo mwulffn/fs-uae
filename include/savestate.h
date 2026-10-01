@@ -290,6 +290,11 @@ STATIC_INLINE bool isrestore(void)
 }
 
 extern void savestate_quick(int slot, int save);
+#ifdef FSUAE
+extern void savestate_memory_save_request(void);
+extern uae_u8 *savestate_memory_save_result(size_t *size);
+extern void savestate_memory_restore_request(const uae_u8 *data, size_t size);
+#endif
 
 extern void savestate_capture(int);
 extern void savestate_free(void);

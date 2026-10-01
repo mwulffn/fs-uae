@@ -597,6 +597,15 @@ static void restore_header (uae_u8 *src)
 
 /* restore all subsystems */
 
+#ifdef FSUAE
+// A state which savestate_check saved to memory, or which restore_state
+// will restore instead of reading a file.
+static uae_u8 *memory_state_data;
+static size_t memory_state_size;
+static bool memory_state_save;
+static bool memory_state_restore;
+#endif
+
 void restore_state (const TCHAR *filename)
 {
 	struct zfile *f;
@@ -606,8 +615,17 @@ void restore_state (const TCHAR *filename)
 	size_t filepos, filesize;
 	int z3num, z2num;
 	bool end_found = false;
+	bool from_memory = false;
 
 	chunk = 0;
+#ifdef FSUAE
+	if (memory_state_restore) {
+		memory_state_restore = false;
+		from_memory = true;
+		filename = _T("<memory>");
+		f = zfile_fopen_data (filename, memory_state_size, memory_state_data);
+	} else
+#endif
 	f = zfile_fopen (filename, _T("rb"), ZFD_NORMAL);
 	if (!f)
 		goto error;
@@ -852,8 +870,10 @@ void restore_state (const TCHAR *filename)
 		if (name[0] == 0)
 			break;
 	}
-	target_addtorecent (filename, 0);
-	DISK_history_add(filename, -1, HISTORY_STATEFILE, 0);
+	if (!from_memory) {
+		target_addtorecent (filename, 0);
+		DISK_history_add(filename, -1, HISTORY_STATEFILE, 0);
+	}
 	return;
 
 error:
@@ -1322,6 +1342,58 @@ int save_state (const TCHAR *filename, const TCHAR *description)
 	return v;
 }
 
+#ifdef FSUAE
+
+static void save_state_memory(void)
+{
+	xfree (memory_state_data);
+	memory_state_data = NULL;
+	memory_state_size = 0;
+	if (!save_filesys_cando ())
+		return;
+	new_blitter = false;
+	custom_prepare_savestate();
+	struct zfile *f = zfile_fopen_empty (NULL, _T("<memory>"));
+	if (!f)
+		return;
+	if (save_state_internal (f, _T(""), 0, true)) {
+		int size;
+		memory_state_data = zfile_getdata (f, 0, -1, &size);
+		memory_state_size = size;
+	}
+	zfile_fclose (f);
+}
+
+/* Makes savestate_check save a state to memory at the end of the frame. */
+void savestate_memory_save_request(void)
+{
+	memory_state_save = true;
+	savestate_state = STATE_SAVE;
+}
+
+/* Returns the state saved to memory (to be freed with xfree), or NULL. */
+uae_u8 *savestate_memory_save_result(size_t *size)
+{
+	uae_u8 *data = memory_state_data;
+	*size = memory_state_size;
+	memory_state_data = NULL;
+	memory_state_size = 0;
+	return data;
+}
+
+/* Restores a state saved to memory at the end of the frame. The data is copied. */
+void savestate_memory_restore_request(const uae_u8 *data, size_t size)
+{
+	xfree (memory_state_data);
+	memory_state_data = xmalloc (uae_u8, size);
+	memcpy (memory_state_data, data, size);
+	memory_state_size = size;
+	memory_state_restore = true;
+	savestate_state = STATE_DORESTORE;
+}
+
+#endif
+
 void savestate_quick(int slot, int save)
 {
 	if (path_statefile[0]) {
@@ -1378,6 +1450,14 @@ bool savestate_check(void)
 		savestate_state = STATE_REWIND;
 		return true;
 	} else if (savestate_state == STATE_SAVE) {
+#ifdef FSUAE
+		if (memory_state_save) {
+			memory_state_save = false;
+			save_state_memory();
+			savestate_state = 0;
+			return false;
+		}
+#endif
 		savestate_initsave(savestate_fname, 1, true, true);
 		save_state(savestate_fname, STATE_SAVE_DESCRIPTION);
 		return false;

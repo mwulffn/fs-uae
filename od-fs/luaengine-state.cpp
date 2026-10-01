@@ -65,9 +65,74 @@ static int l_state_load(lua_State *L)
     return luaengine_yield_frames(L, 1, load_finished, 1);
 }
 
+// A state kept in memory, as a Lua userdata.
+struct state_snapshot {
+    uae_u8 *data;
+    size_t size;
+};
+
+#define SNAPSHOT_TYPE "fsuae.snapshot"
+
+static int snapshot_gc(lua_State *L)
+{
+    state_snapshot *snapshot = (state_snapshot *) luaL_checkudata(L, 1, SNAPSHOT_TYPE);
+    xfree(snapshot->data);
+    snapshot->data = NULL;
+    return 0;
+}
+
+// #snapshot is its size in bytes.
+static int snapshot_len(lua_State *L)
+{
+    state_snapshot *snapshot = (state_snapshot *) luaL_checkudata(L, 1, SNAPSHOT_TYPE);
+    lua_pushinteger(L, snapshot->size);
+    return 1;
+}
+
+static int snapshot_finished(lua_State *L, int status, lua_KContext context)
+{
+    size_t size;
+    uae_u8 *data = savestate_memory_save_result(&size);
+    if (data == NULL) {
+        savestate_state = 0;
+        return luaL_error(L, "could not save the state");
+    }
+    state_snapshot *snapshot = (state_snapshot *) lua_newuserdatauv(L, sizeof(state_snapshot), 0);
+    snapshot->data = data;
+    snapshot->size = size;
+    luaL_setmetatable(L, SNAPSHOT_TYPE);
+    return 1;
+}
+
+// state.snapshot() saves a state in memory and returns it. Like state.save,
+// it returns when the current frame is finished.
+static int l_state_snapshot(lua_State *L)
+{
+    savestate_memory_save_request();
+    return luaengine_yield_frames(L, 1, snapshot_finished);
+}
+
+// state.restore(snapshot) loads a state returned by state.snapshot. It can
+// be loaded any number of times. Like state.load, it returns when a frame
+// has been run after loading it.
+static int l_state_restore(lua_State *L)
+{
+    state_snapshot *snapshot = (state_snapshot *) luaL_checkudata(L, 1, SNAPSHOT_TYPE);
+    savestate_memory_restore_request(snapshot->data, snapshot->size);
+    return luaengine_yield_frames(L, 1, load_finished, 1);
+}
+
+static const luaL_Reg snapshot_metamethods[] = {
+    {"__gc", snapshot_gc},
+    {"__len", snapshot_len},
+    {NULL, NULL},
+};
+
 static const luaL_Reg state_functions[] = {
     {"load", l_state_load},
+    {"restore", l_state_restore},
     {"save", l_state_save},
+    {"snapshot", l_state_snapshot},
     {NULL, NULL},
 };
 
@@ -115,6 +180,9 @@ static const luaL_Reg media_functions[] = {
 
 void luaengine_open_state(lua_State *L)
 {
+    luaL_newmetatable(L, SNAPSHOT_TYPE);
+    luaL_setfuncs(L, snapshot_metamethods, 0);
+    lua_pop(L, 1);
     luaL_newlib(L, state_functions);
     lua_setglobal(L, "state");
     luaL_newlib(L, media_functions);
