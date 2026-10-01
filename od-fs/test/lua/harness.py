@@ -5,6 +5,8 @@ FSUAE_TEST_KICKSTART. The matching Amiga model (see MODELS) is given with
 FSUAE_TEST_MODEL, and defaults to A1200. FSUAE_TEST_BINARY overrides the
 path to the fs-uae executable, which defaults to od-fs/fs-uae. The FS-UAE
 windows do not take the keyboard focus, unless FSUAE_TEST_FOREGROUND is set.
+FSUAE_TEST_OPTIONS adds configuration options to all tests, for example
+"cpu_model=68040,fpu_model=68040".
 """
 
 import os
@@ -126,6 +128,10 @@ class Emulator:
         # The quickstart option must come first, as it sets all the others.
         config = {"quickstart": MODELS[model]}
         config.update({"kickstart_rom_file": kickstart, "lua_port": str(self.port)})
+        for option in os.environ.get("FSUAE_TEST_OPTIONS", "").split(","):
+            if option:
+                key, value = option.split("=", 1)
+                config[key] = value
         if test_disk:
             create_test_disk(self.path / "test.adf")
             config["floppy0"] = str(self.path / "test.adf")

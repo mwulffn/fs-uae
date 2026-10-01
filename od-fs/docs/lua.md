@@ -130,8 +130,8 @@ Addresses and values are integers. Functions raise a Lua error when given invali
 Notes on taps:
 
 - If the callback returns an integer, that value is read or written instead.
-- `pc` is the address of the instruction making the access. With 68030 MMU emulation (the A3000
-  configuration), it is the address of the instruction after it.
+- `pc` is the address of the instruction making the access. With 68030 or 68040 MMU emulation
+  (the A3000 configuration has the first), it is the address of the instruction after it.
 - The callback is called for each bus access. Depending on the CPU emulation, a long word is
   accessed as one long word or as two words.
 - The callback runs in the middle of an instruction. It can read and write memory and call
@@ -274,7 +274,8 @@ FSUAE_TEST_KICKSTART=/path/to/kickstart.rom python3 -m unittest
 `FSUAE_TEST_MODEL` selects the Amiga model matching the ROM (`A500`, `A500+`, `A600`, `A1200`,
 `A3000` or `A4000`; the default is `A1200`), and `FSUAE_TEST_BINARY` the executable to test
 (default `od-fs/fs-uae`). The model is set up with the `quickstart` option, so the tests run with
-the standard configuration of that model. Most tests boot a small
+the standard configuration of that model. `FSUAE_TEST_OPTIONS` adds configuration options to all
+tests, for example `FSUAE_TEST_OPTIONS=cpu_model=68040,fpu_model=68040`. Most tests boot a small
 disk image which they create themselves. `test_public_disk.py` downloads the free operating system
 EmuTOS and boots that.
 
@@ -308,4 +309,6 @@ focus.
   much the CPU gets done per frame depends on the host, so runs are not exactly repeatable. After
   restoring a state, a program can be a frame ahead of or behind where it was the last time.
 - The tests have been run on macOS only, with these models and Kickstart ROMs: A500 (1.3 and
-  3.1), A500+ (2.04), A600 (2.05), A1200 (3.1), A3000 (2.04) and A4000 (3.1).
+  3.1), A500+ (2.04), A600 (2.05), A1200 (3.1), A3000 (2.04) and A4000 (3.1). The A4000 was also
+  run with a 68040 and a 68060, each with and without MMU emulation and the "more compatible"
+  setting.
