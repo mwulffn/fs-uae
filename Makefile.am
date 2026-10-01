@@ -1779,6 +1779,82 @@ libudis86_a_SOURCES = \
 	od-fs/libudis86/src/udis86.c
 endif
 
+# -----------------------------------------------------------------------------
+
+if WITH_LUA
+noinst_LIBRARIES += liblua.a
+AM_CPPFLAGS += -I$(srcdir)/od-fs/lua/src
+fs_uae_LDADD += liblua.a
+if !WINDOWS
+liblua_a_CPPFLAGS = $(AM_CPPFLAGS) -DLUA_USE_POSIX
+endif
+liblua_a_SOURCES = \
+	od-fs/lua/src/lapi.c \
+	od-fs/lua/src/lapi.h \
+	od-fs/lua/src/lauxlib.c \
+	od-fs/lua/src/lauxlib.h \
+	od-fs/lua/src/lbaselib.c \
+	od-fs/lua/src/lcode.c \
+	od-fs/lua/src/lcode.h \
+	od-fs/lua/src/lcorolib.c \
+	od-fs/lua/src/lctype.c \
+	od-fs/lua/src/lctype.h \
+	od-fs/lua/src/ldblib.c \
+	od-fs/lua/src/ldebug.c \
+	od-fs/lua/src/ldebug.h \
+	od-fs/lua/src/ldo.c \
+	od-fs/lua/src/ldo.h \
+	od-fs/lua/src/ldump.c \
+	od-fs/lua/src/lfunc.c \
+	od-fs/lua/src/lfunc.h \
+	od-fs/lua/src/lgc.c \
+	od-fs/lua/src/lgc.h \
+	od-fs/lua/src/linit.c \
+	od-fs/lua/src/liolib.c \
+	od-fs/lua/src/ljumptab.h \
+	od-fs/lua/src/llex.c \
+	od-fs/lua/src/llex.h \
+	od-fs/lua/src/llimits.h \
+	od-fs/lua/src/lmathlib.c \
+	od-fs/lua/src/lmem.c \
+	od-fs/lua/src/lmem.h \
+	od-fs/lua/src/loadlib.c \
+	od-fs/lua/src/lobject.c \
+	od-fs/lua/src/lobject.h \
+	od-fs/lua/src/lopcodes.c \
+	od-fs/lua/src/lopcodes.h \
+	od-fs/lua/src/lopnames.h \
+	od-fs/lua/src/loslib.c \
+	od-fs/lua/src/lparser.c \
+	od-fs/lua/src/lparser.h \
+	od-fs/lua/src/lprefix.h \
+	od-fs/lua/src/lstate.c \
+	od-fs/lua/src/lstate.h \
+	od-fs/lua/src/lstring.c \
+	od-fs/lua/src/lstring.h \
+	od-fs/lua/src/lstrlib.c \
+	od-fs/lua/src/ltable.c \
+	od-fs/lua/src/ltable.h \
+	od-fs/lua/src/ltablib.c \
+	od-fs/lua/src/ltm.c \
+	od-fs/lua/src/ltm.h \
+	od-fs/lua/src/lua.h \
+	od-fs/lua/src/lua.hpp \
+	od-fs/lua/src/luaconf.h \
+	od-fs/lua/src/lualib.h \
+	od-fs/lua/src/lundump.c \
+	od-fs/lua/src/lundump.h \
+	od-fs/lua/src/lutf8lib.c \
+	od-fs/lua/src/lvm.c \
+	od-fs/lua/src/lvm.h \
+	od-fs/lua/src/lzio.c \
+	od-fs/lua/src/lzio.h
+
+libuae_a_SOURCES += \
+	od-fs/luaengine.cpp \
+	od-fs/luaengine.h
+endif
+
 # --------------------------------------------------------------------------------------------------
 
 fs_uae_LDADD += @ALSA_LIBS@
