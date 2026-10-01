@@ -364,8 +364,13 @@ Kickstart ROM, and the path to it in an environment variable:
 
 ```sh
 cd od-fs/test/lua
-FSUAE_TEST_KICKSTART=/path/to/kickstart.rom python3 -m unittest
+FSUAE_TEST_KICKSTART=/path/to/kickstart.rom ./run_tests.py
 ```
+
+`run_tests.py` runs the test modules in parallel, each with its own FS-UAE instances, and prints
+one line per module. `--jobs N` sets how many run at the same time, and module names can be given
+to run only those. A single module or test can also be run with `python3 -m unittest test_debug`
+or `python3 -m unittest test_debug.TapTest`.
 
 `FSUAE_TEST_MODEL` selects the Amiga model matching the ROM (`A500`, `A500+`, `A600`, `A1200`,
 `A3000` or `A4000`; the default is `A1200`), and `FSUAE_TEST_BINARY` the executable to test
@@ -410,6 +415,20 @@ logic which does not depend on it. Other ways to save time:
   instruction is checked: one breakpoint cost 10% with a demo running and 40% with a program in a
   tight loop, and 51 breakpoints cost 27% and 66%. A tap only costs when memory in the same 64 KB
   block is accessed.
+
+## Running several instances
+
+FS-UAE only starts once per user: a second copy finds the lock file of the first in the directory
+for temporary files and quits. To run several at the same time, for example to test in parallel,
+give each its own directory in `TMPDIR` (and its own `lua_port`):
+
+```sh
+mkdir -p /tmp/fs-uae-1 /tmp/fs-uae-2
+TMPDIR=/tmp/fs-uae-1 od-fs/fs-uae one.uae &
+TMPDIR=/tmp/fs-uae-2 od-fs/fs-uae two.uae &
+```
+
+The test harness does this for every emulator it starts.
 
 ## Limitations
 

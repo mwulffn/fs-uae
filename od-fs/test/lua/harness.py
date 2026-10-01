@@ -91,8 +91,12 @@ def create_test_disk(path: Path) -> None:
     path.write_bytes(bytes(block) + bytes(901120 - 1024))
 
 
-def test_env() -> dict[str, str]:
-    """Return the environment for FS-UAE: it must not take the keyboard focus.
+def test_env(directory: Path) -> dict[str, str]:
+    """Return the environment for an FS-UAE which uses directory for its files.
+
+    FS-UAE only allows one instance per user, and uses a lock file in the
+    directory for temporary files to check. Each emulator gets a directory
+    of its own, so several can run at the same time.
 
     The SDL hints keep the window from being activated when it is shown or
     raised, and (on macOS) keep FS-UAE out of the Dock and the app switcher,
@@ -100,6 +104,9 @@ def test_env() -> dict[str, str]:
     FSUAE_TEST_FOREGROUND to get the normal behaviour.
     """
     env = dict(os.environ)
+    temporary = directory / "tmp"
+    temporary.mkdir()
+    env["TMPDIR"] = str(temporary)
     if not env.get("FSUAE_TEST_FOREGROUND"):
         env["SDL_WINDOW_ACTIVATE_WHEN_SHOWN"] = "0"
         env["SDL_WINDOW_ACTIVATE_WHEN_RAISED"] = "0"
@@ -191,7 +198,10 @@ class Emulator:
         self.lua: LuaClient | None = None
         self.log = open(self.path / "log.txt", "w")
         self.process = subprocess.Popen(
-            [binary, str(config_path)], stdout=self.log, stderr=subprocess.STDOUT, env=test_env()
+            [binary, str(config_path)],
+            stdout=self.log,
+            stderr=subprocess.STDOUT,
+            env=test_env(self.path),
         )
         try:
             self.lua = self.connect()
