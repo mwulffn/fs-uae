@@ -943,6 +943,9 @@ bool savestate_restore_finish(void)
 	savestate_state = 0;
 	init_hz();
 	audio_activate();
+#if defined(FSUAE) && defined(FILESYS)
+	filesys_state_restored();
+#endif
 	return true;
 }
 

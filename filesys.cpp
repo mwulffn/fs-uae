@@ -185,6 +185,13 @@ static uaecptr afterdos_name, afterdos_id, afterdos_initcode;
 static uaecptr keymaphook_name, keymaphook_id, keymaphook_initcode;
 static uaecptr shell_execute_data, shell_execute_process;
 static int filesys_in_interrupt;
+#ifdef FSUAE
+// The number of packets given to the file system threads which they have
+// not finished. Such a packet only exists on the host side, so a state
+// saved now would leave the program which sent it waiting forever when the
+// state is restored.
+static volatile uae_atomic filesys_packets_in_progress;
+#endif
 static uae_u32 mountertask;
 static int automountunit = -1;
 static int autocreatedunit;
@@ -7248,8 +7255,12 @@ static int filesys_iteration(UnitInfo *ui)
 
 	if (ui->reset_state == FS_GO_DOWN) {
 		trap_background_set_complete(ctx);
-		if (pck != 0)
-		   return 1;
+		if (pck != 0) {
+#ifdef FSUAE
+			atomic_dec(&filesys_packets_in_progress);
+#endif
+			return 1;
+		}
 		/* Death message received. */
 		uae_sem_post (&ui->reset_sync_sem);
 		/* Die.  */
@@ -7322,6 +7333,9 @@ static int filesys_iteration(UnitInfo *ui)
 #endif
 
 	trap_background_set_complete(ctx);
+#ifdef FSUAE
+	atomic_dec(&filesys_packets_in_progress);
+#endif
 	return 1;
 }
 
@@ -7396,6 +7410,9 @@ static uae_u32 REGPARAM2 filesys_handler(TrapContext *ctx)
 #endif
 
 		trap_set_background(ctx);
+#ifdef FSUAE
+		atomic_inc(&filesys_packets_in_progress);
+#endif
 		write_comm_pipe_pvoid(unit->ui.unit_pipe, ctx, 0);
 		write_comm_pipe_u32(unit->ui.unit_pipe, packet_addr, 0);
 		write_comm_pipe_u32(unit->ui.unit_pipe, message_addr, 0);
@@ -7430,6 +7447,17 @@ void filesys_start_threads (void)
 {
 	int i;
 
+#ifdef FSUAE
+	// The interrupt handler of the file system holds singlethread_int_sem
+	// from its first call of exter_int_helper to its last. A reset (and so
+	// the restore of a state) can come in between, and the semaphore would
+	// then stay taken: the handler would never run again, and no program
+	// would get an answer from the file system.
+	if (filesys_in_interrupt) {
+		uae_sem_post(&singlethread_int_sem);
+	}
+	filesys_packets_in_progress = 0;
+#endif
 	filesys_in_interrupt = 0;
 	for (i = 0; i < MAX_FILESYSTEM_UNITS; i++) {
 		UnitInfo *ui = &mountinfo.ui[i];
@@ -7438,6 +7466,26 @@ void filesys_start_threads (void)
 		filesys_start_thread (ui, i);
 	}
 }
+
+#ifdef FSUAE
+
+// Called when a state has been restored. The state can have replies from
+// the file system which have not been delivered to the Amiga side yet. They
+// are delivered by an interrupt handler, but the request for that interrupt
+// is not part of the state (and requests are cleared by the reset which a
+// restore goes through), so it is made again here. Without it, the program
+// which is waiting for the reply would wait forever.
+void filesys_state_restored (void)
+{
+	for (int i = 0; i < MAX_FILESYSTEM_UNITS; i++) {
+		UnitInfo *ui = &mountinfo.ui[i];
+		if (ui->open > 0 && ui->self && ui->self->cmds_sent != ui->self->cmds_acked) {
+			do_uae_int_requested();
+		}
+	}
+}
+
+#endif
 
 void filesys_free_handles (void)
 {
@@ -10502,6 +10550,10 @@ int save_filesys_cando (void)
 {
 	if (nr_units () == 0)
 		return -1;
+#ifdef FSUAE
+	if (filesys_packets_in_progress > 0)
+		return 0;
+#endif
 	return filesys_in_interrupt ? 0 : 1;
 }
 

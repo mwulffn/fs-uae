@@ -4,6 +4,7 @@ The tests need vasm and vlink to build the programs, and are skipped if they
 are not installed.
 """
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,13 +16,15 @@ class DirectoryDriveTestCase(unittest.TestCase):
     """Boots the program given in the subclass from a directory hard drive."""
 
     program_name: str
+    # Configuration options besides the hard drive.
+    options: dict[str, str] = {}
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.directory = tempfile.TemporaryDirectory(prefix="fsuae-lua-drive-")
         try:
             drive = build_directory_drive(Path(cls.directory.name), cls.program_name)
-            cls.emulator = Emulator({"filesystem2": f"rw,DH0:Test:{drive},0"})
+            cls.emulator = Emulator({"filesystem2": f"rw,DH0:Test:{drive},0", **cls.options})
         except BaseException:
             cls.directory.cleanup()
             raise
@@ -99,6 +102,31 @@ class BusyDriveTest(DirectoryDriveTestCase):
         )
         self.assertEqual(failures, 0)
         self.assertGreater(path.stat().st_size, 1000)
+
+
+@unittest.skipIf(
+    os.environ.get("FSUAE_TEST_MODEL") == "A500",
+    "restores still hang now and then on the A500 (issue 2 in mwulffn/fs-uae)",
+)
+class RestoreBusyDriveTest(DirectoryDriveTestCase):
+    """States are restored while the program reads from the drive.
+
+    The CPU is not cycle-exact here. With a cycle-exact CPU, a state is
+    saved in the middle of an instruction, and programs can crash for that
+    reason when it is restored, whatever they are doing.
+    """
+
+    program_name = "ioprog"
+    options = {"cycle_exact": "false"}
+
+    def test_program_keeps_reading_after_a_restore(self) -> None:
+        # Without the fixes in filesys.cpp, the program was left waiting
+        # forever for the file system after about every fourth restore.
+        for cycle in range(12):
+            self.lua.call("snapshot = state.snapshot() emu.wait_frames(3) state.restore(snapshot)")
+            before = self.counter()
+            self.lua.call("emu.wait_frames(25)")
+            self.assertGreater(self.counter(), before, f"after restore number {cycle + 1}")
 
 
 if __name__ == "__main__":

@@ -132,6 +132,9 @@ extern void filesys_reset (void);
 extern void filesys_cleanup (void);
 extern void filesys_prepare_reset (void);
 extern void filesys_start_threads (void);
+#ifdef FSUAE
+extern void filesys_state_restored (void);
+#endif
 extern void filesys_flush_cache (void);
 extern void filesys_free_handles (void);
 extern void filesys_vsync (void);

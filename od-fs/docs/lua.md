@@ -311,14 +311,22 @@ FS-UAE saves and loads states at the end of a frame. The functions therefore let
 to the end of the current frame, also when it is paused, and loading returns one frame after the
 state was loaded. Lua variables, breakpoints and taps are not part of the state and are kept.
 
-States work with a directory on the host as hard drive, with one caveat. While the file system
-of such a drive is handling a request from the Amiga, a state cannot be saved; `state.save` and
-`state.snapshot` then wait and try again after each frame (for up to 100 frames). Loading a state
-which was saved while a program was reading or writing files on such a drive can leave that
-program waiting forever for an answer from the file system. Take snapshots at a point where the
-program is not using the drive (for a game, after it has loaded). Floppy images are emulated at
-the level of the hardware and do not go through this file system; hard disk image files have not
-been tested.
+With a cycle-exact CPU, which is the standard for the A500 and A1200 configurations, a state is
+saved in the middle of an instruction, and the program which was running can crash when the state
+is loaded. With a program reading a file in a loop, this happened for 3% of the states on the
+A500 and 9% on the A1200. A state which crashes the program does so every time it is loaded, and
+the others can be loaded any number of times. Without cycle-exact emulation (`cycle_exact=false`)
+it did not happen in 1,200 states. So for work which depends on states, either turn cycle-exact
+emulation off, or check that the program is alive after the first load of a state and take a new
+one if it is not. See issue 19 in mwulffn/fs-uae.
+
+States work with a directory on the host as hard drive. While the file system of such a drive is
+handling a request from the Amiga, a state cannot be saved; `state.save` and `state.snapshot` then
+wait and try again after each frame (for up to 100 frames). A state saved while a program is
+reading files on such a drive loads correctly on the A1200 configuration (800 loads without a
+failure, with `cycle_exact=false`). On the A500 configuration with Kickstart 1.3, about 1 load
+in 60 still leaves the program waiting forever for an answer from the file system (issue 2). Hard
+disk image files have not been tested.
 
 ### media
 
@@ -457,6 +465,7 @@ The test harness does this for every emulator it starts.
   screenshots get that size. The lines which remain are the same, so compare screenshots taken
   before and after a load line by line from the top, not as whole files. The cause has not been
   found; it is in how the display is set up after a restore, not in the Lua functions.
+- With a cycle-exact CPU, a program can crash when a state is loaded (see the `state` functions).
 - Lua runs on the emulation thread. A script which loops without waiting stops the emulation.
 - Breakpoints and instruction steps have not been tested with the JIT compiler (x86 only).
 - When the CPU runs at maximum speed (the default for the A3000 and A4000 configurations), how
