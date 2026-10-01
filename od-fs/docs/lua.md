@@ -5,7 +5,8 @@ CPU registers, set breakpoints, send input, take screenshots and save states. Sc
 loaded when the emulation starts, or sent to a running FS-UAE over a local socket, which makes it
 possible for another program to drive the emulation step by step.
 
-Lua support is not built by default. Configure FS-UAE with `--enable-lua` to include it.
+Lua support is built by default (configure with `--disable-lua` to leave it out). It does nothing
+unless one of the options below is used.
 
 ## Running scripts
 

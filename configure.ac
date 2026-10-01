@@ -789,7 +789,7 @@ AM_CONDITIONAL([JIT],
 [test x$enable_jit != xno])
 
 OPT_FEATURE([USE_JIT_FPU], [jit_fpu], [jit-fpu], [JIT compilation of FPU instructions])
-DIS_FEATURE([WITH_LUA], [lua], [lua], [Lua scripting])
+OPT_FEATURE([WITH_LUA], [lua], [lua], [Lua scripting])
 OPT_FEATURE([WITH_NETPLAY], [netplay], [netplay], [netplay support])
 OPT_FEATURE([NCR], [ncr], [ncr], [A4000T/A4091, 53C710/53C770 SCSI])
 OPT_FEATURE([NCR9X], [ncr9x], [ncr9x], [53C9X SCSI])
