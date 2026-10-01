@@ -151,14 +151,14 @@ class Emulator:
         """Wait until the test disk has booted and return the address of TEST_PROGRAM."""
         self.lua.call("emu.warp(true)")
         try:
-            # The program is running when the frame counter in the boot block
-            # (which is 0 on the disk) has been changed.
+            # The program is running when the PC is inside a copy of it.
             code = "".join(f"\\x{byte:02x}" for byte in TEST_PROGRAM[:DATA_OFFSET])
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:
                 address = self.lua.eval(
-                    f"local s = mem.read_range(0, 0x100000):find('{code}', 1, true) "
-                    f"if s and mem.peek_u32(s - 1 + {COUNTER_OFFSET}) ~= 0 then return s - 1 end"
+                    f"local start = cpu.pc - {DATA_OFFSET} "
+                    f"local s = mem.read_range(start, {2 * DATA_OFFSET}):find('{code}', 1, true) "
+                    f"return s and start + s - 1"
                 )
                 if address is not None:
                     return address
@@ -172,14 +172,22 @@ class EmulatorTestCase(unittest.TestCase):
     """Base class for tests which share one emulator per test class."""
 
     options: dict[str, str] = {}
+    # Boot the test disk, and set program to the address of TEST_PROGRAM.
     test_disk = False
     emulator: Emulator
     lua: LuaClient
+    program: int
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.emulator = Emulator(cls.options, cls.test_disk)
         cls.lua = cls.emulator.lua
+        if cls.test_disk:
+            try:
+                cls.program = cls.emulator.find_test_program()
+            except Exception:
+                cls.emulator.stop()
+                raise
 
     @classmethod
     def tearDownClass(cls) -> None:

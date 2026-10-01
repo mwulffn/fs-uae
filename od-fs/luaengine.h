@@ -32,6 +32,11 @@ void luaengine_start_task(lua_State *L, int nargs, int client = -1, const char *
 // Logs the error message on top of the stack and pops it.
 void luaengine_log_error(lua_State *L, const char *context);
 
+// Functions creating the global tables with the Lua API.
+
+void luaengine_open_cpu(lua_State *L);
+void luaengine_open_mem(lua_State *L);
+
 // luaengine-json.cpp
 
 void luaengine_json_append_string(std::string &out, const char *s, size_t len);

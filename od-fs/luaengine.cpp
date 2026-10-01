@@ -322,6 +322,8 @@ void uae_lua_init_state(lua_State *L)
     lua_register(L, "print", l_print);
     luaL_newlib(L, emu_functions);
     lua_setglobal(L, "emu");
+    luaengine_open_cpu(L);
+    luaengine_open_mem(L);
 }
 
 void uae_lua_load(const TCHAR *filename)
