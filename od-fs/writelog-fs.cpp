@@ -505,7 +505,14 @@ void console_out_f (const TCHAR *format,...)
 #else
 	va_list arg_ptr;
 	va_start(arg_ptr, format);
-	vprintf(format, arg_ptr);
+	if (console_buffer) {
+		// Output is being captured (see setconsolemode).
+		TCHAR *text = g_strdup_vprintf(format, arg_ptr);
+		console_put(text);
+		g_free(text);
+	} else {
+		vprintf(format, arg_ptr);
+	}
 	va_end(arg_ptr);
 
 #endif
@@ -516,7 +523,11 @@ void console_out (const TCHAR *txt)
 #ifdef _WIN32
 	console_put (txt);
 #else
-	printf("%s", txt);
+	if (console_buffer) {
+		console_put(txt);
+	} else {
+		printf("%s", txt);
+	}
 #endif
 }
 
