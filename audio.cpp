@@ -43,6 +43,8 @@
 #include "ahidsound_new.h"
 #endif
 #endif
+#include "threaddep/thread.h"
+#include "fpp.h"
 
 #include <math.h>
 

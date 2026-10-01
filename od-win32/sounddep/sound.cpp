@@ -2795,6 +2795,8 @@ static frame_time_t prevtime;
 
 void audio_got_pull_event(void)
 {
+#ifdef FSUAE
+#else
 	struct sound_dp *s = sdp->data;
 	if (s && !s->gotpullevent) {
 		frame_time_t cyc = read_processor_time();
@@ -2802,6 +2804,7 @@ void audio_got_pull_event(void)
 		prevtime = cyc;
 		s->gotpullevent = true;
 	}
+#endif
 }
 
 bool audio_is_event_frame_possible(int ms)

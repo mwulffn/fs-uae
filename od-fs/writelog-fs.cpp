@@ -6,6 +6,10 @@
 #include "compemu.h"
 #include "uae/fs.h"
 #include "uae/glib.h"
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include "custom.h"
 #include "debug.h"
 
@@ -126,7 +130,7 @@ static HWND myGetConsoleWindow (void)
 	return GetConsoleWindow ();
 }
 
-static void set_console_input_mode(int line)
+void set_console_input_mode(int line)
 {
 	if (console_input_linemode < 0)
 		return;
@@ -800,4 +804,24 @@ void jit_abort (const TCHAR *format,...)
 	uae_reset(1, 1);
 #endif
 	g_free(buffer);
+}
+
+#ifndef _WIN32
+
+void set_console_input_mode(int line)
+{
+	// The terminal is always in line mode.
+}
+
+#endif
+
+// The debugger reads its commands from the console, and is only entered
+// when there is someone to type them.
+bool is_interactive_console(void)
+{
+#ifdef _WIN32
+	return true;
+#else
+	return isatty(STDIN_FILENO) != 0;
+#endif
 }
