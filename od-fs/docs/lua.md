@@ -260,7 +260,8 @@ Exception watches catch a program going wrong:
   exception, and is not caught unless it follows one of the exceptions above.
 
 A breakpoint stops the emulation *before* the instruction at its address is run. While there are
-breakpoints, the emulation is slower, because they are checked before every instruction.
+breakpoints, the emulation is somewhat slower, because they are checked before every instruction
+(see "Running fast").
 
 `dbg.command` is meant for commands which show information, such as `r` (registers), `m` (memory),
 `c` (CIA and custom chips) and `e` (custom registers). Commands which continue the emulation (`g`,
@@ -385,6 +386,27 @@ The tests start FS-UAE with `--headless`, so no windows appear. Set `FSUAE_TEST_
 see them; they are then started with SDL hints which keep them from taking the keyboard focus
 (`SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0`, `SDL_WINDOW_ACTIVATE_WHEN_RAISED=0` and, on macOS,
 `SDL_MAC_BACKGROUND_APP=1`).
+
+## Running fast
+
+`emu.warp(true)` runs the emulation as fast as the host allows. How fast that is depends mostly
+on how exact the emulation is. Measured on an Apple Silicon Mac, with a demo running:
+
+| Configuration | Speed in warp mode |
+| --- | --- |
+| A500 or A1200, standard (cycle-exact) | about 480 frames per second (9 times real time) |
+| A500 with `cycle_exact=false` | about 800 frames per second |
+| A1200 with `cycle_exact=false` and `cpu_compatible=false` | about 880 frames per second |
+
+Use the exact settings when the timing of the program matters, and the faster ones for tests of
+logic which does not depend on it. Other ways to save time:
+
+- Take a snapshot (`state.snapshot`) when the program has started, and restore it for each test
+  instead of booting again.
+- Remove breakpoints when they are no longer needed. While any breakpoint is set, the addresses
+  are checked before every instruction, which cost about 7% on an A500 and 20% on an A1200 with a
+  program in a tight loop. The number of breakpoints does not matter. A tap only costs when memory
+  in the same 64 KB block is accessed.
 
 ## Running without a visible window
 
