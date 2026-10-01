@@ -9,7 +9,7 @@ from fsuae.emulatorwindow import EmulatorWindow
 
 
 class FSUAEMainWindow(MainWindow):
-    def __init__(self, *, fullscreen: bool = False):
+    def __init__(self, *, fullscreen: bool = False, hidden: bool = False):
         # For temporary ShortcutsWindow
         # height = 36 + int(540 * 1.5) + 36
         # height = int(540 * 1.5) + 36
@@ -39,7 +39,9 @@ class FSUAEMainWindow(MainWindow):
         extra_title = f"{f12_help}{delim}{mouse_help}"
 
         title = f"FS-UAE  {version} ALPHA"
-        super().__init__(title, (width, height), fullscreen=fullscreen, extra_title=extra_title)
+        super().__init__(
+            title, (width, height), fullscreen=fullscreen, hidden=hidden, extra_title=extra_title
+        )
         # self.set_background_colour(Colour.GREY_11)
         # self.set_background_colour(Colour.RED)
 

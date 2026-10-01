@@ -99,6 +99,21 @@ class QuitTest(unittest.TestCase):
         self.check_quit("emu.pause() emu.quit()")
 
 
+class HeadlessTest(unittest.TestCase):
+    def test_headless_option_in_the_configuration(self) -> None:
+        # The harness normally passes --headless. The option in the .uae
+        # file does the same. That the window is not shown cannot be
+        # checked from here; this checks that the emulation and the video
+        # functions work.
+        emulator = Emulator({"headless": "true"}, arguments=["--some-unknown-option"])
+        try:
+            emulator.lua.call("emu.wait_frames(5)")
+            width, height = emulator.lua.call("return video.size()")
+            self.assertGreater(width * height, 0)
+        finally:
+            emulator.stop()
+
+
 class StartupScriptTest(unittest.TestCase):
     def test_lua_option_runs_script(self) -> None:
         emulator = Emulator({"lua": str(Path(__file__).with_name("startup.lua"))})

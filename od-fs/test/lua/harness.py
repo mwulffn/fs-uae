@@ -3,8 +3,9 @@
 The tests need a Kickstart ROM, given with the environment variable
 FSUAE_TEST_KICKSTART. The matching Amiga model (see MODELS) is given with
 FSUAE_TEST_MODEL, and defaults to A1200. FSUAE_TEST_BINARY overrides the
-path to the fs-uae executable, which defaults to od-fs/fs-uae. The FS-UAE
-windows do not take the keyboard focus, unless FSUAE_TEST_FOREGROUND is set.
+path to the fs-uae executable, which defaults to od-fs/fs-uae. FS-UAE is
+started with --headless, so its windows are not shown. Set
+FSUAE_TEST_FOREGROUND to see them (they do not take the keyboard focus).
 FSUAE_TEST_OPTIONS adds configuration options to all tests, for example
 "cpu_model=68040,fpu_model=68040".
 """
@@ -98,19 +99,17 @@ def test_env(directory: Path) -> dict[str, str]:
     directory for temporary files to check. Each emulator gets a directory
     of its own, so several can run at the same time.
 
-    The SDL hints keep the window from being activated when it is shown or
-    raised, and (on macOS) keep FS-UAE out of the Dock and the app switcher,
-    so the tests can run while the computer is used for something else. Set
-    FSUAE_TEST_FOREGROUND to get the normal behaviour.
+    When the windows are shown (FSUAE_TEST_FOREGROUND), the SDL hints keep
+    them from being activated, and (on macOS) keep FS-UAE out of the Dock
+    and the app switcher, so the computer can be used for something else.
     """
     env = dict(os.environ)
     temporary = directory / "tmp"
     temporary.mkdir()
     env["TMPDIR"] = str(temporary)
-    if not env.get("FSUAE_TEST_FOREGROUND"):
-        env["SDL_WINDOW_ACTIVATE_WHEN_SHOWN"] = "0"
-        env["SDL_WINDOW_ACTIVATE_WHEN_RAISED"] = "0"
-        env["SDL_MAC_BACKGROUND_APP"] = "1"
+    env["SDL_WINDOW_ACTIVATE_WHEN_SHOWN"] = "0"
+    env["SDL_WINDOW_ACTIVATE_WHEN_RAISED"] = "0"
+    env["SDL_MAC_BACKGROUND_APP"] = "1"
     return env
 
 
@@ -165,7 +164,10 @@ class Emulator:
         options: dict[str, str] | None = None,
         test_disk: bool = False,
         dos_disk: bool = False,
+        arguments: list[str] | None = None,
     ) -> None:
+        # Extra command line arguments for FS-UAE.
+        self.arguments = arguments or []
         kickstart = os.environ.get("FSUAE_TEST_KICKSTART")
         if not kickstart:
             raise unittest.SkipTest("FSUAE_TEST_KICKSTART is not set")
@@ -197,8 +199,11 @@ class Emulator:
 
         self.lua: LuaClient | None = None
         self.log = open(self.path / "log.txt", "w")
+        # The windows of the emulators are not shown, unless asked for.
+        arguments = [] if os.environ.get("FSUAE_TEST_FOREGROUND") else ["--headless"]
+        arguments += self.arguments
         self.process = subprocess.Popen(
-            [binary, str(config_path)],
+            [binary, *arguments, str(config_path)],
             stdout=self.log,
             stderr=subprocess.STDOUT,
             env=test_env(self.path),

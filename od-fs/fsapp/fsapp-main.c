@@ -498,7 +498,9 @@ static PyObject* emb_create_window(PyObject* self, PyObject* args) {
     const char* title;
     int width, height;
     int fullscreen;
-    if (!PyArg_ParseTuple(args, "s(ii)p:create_window", &title, &width, &height, &fullscreen)) {
+    int hidden = 0;
+    if (!PyArg_ParseTuple(args, "s(ii)p|p:create_window", &title, &width, &height, &fullscreen,
+                          &hidden)) {
         return NULL;
     }
 
@@ -507,6 +509,7 @@ static PyObject* emb_create_window(PyObject* self, PyObject* args) {
     window->width = width;
     window->height = height;
     window->fullscreen = fullscreen;
+    window->hidden = hidden;
 
     // Adding window to list of Windows - actual window creation is left to
     // main thread
@@ -1346,6 +1349,9 @@ void fsapp_main_handle_event(SDL_Event* event) {
                     // g_window_width = 692 * 1.5;
                     // g_window_height = 36 + 540 * 1.5;
 
+                    if (window->hidden) {
+                        window_flags |= SDL_WINDOW_HIDDEN;
+                    }
                     SDL_Log("SDL_CreateWindow");
                     window->window = SDL_CreateWindow(window->title, window->width, window->height,
                                                       window_flags);
@@ -1358,7 +1364,9 @@ void fsapp_main_handle_event(SDL_Event* event) {
 
                     // Not sure why, but on macOS, if the program is not running as an .app bundle,
                     // the window is not raised to the foreground. Doing it manually seems to work.
-                    SDL_RaiseWindow(window->window);
+                    if (!window->hidden) {
+                        SDL_RaiseWindow(window->window);
+                    }
 
                     g_fsgui_window = window;
                     g_window = window->window;

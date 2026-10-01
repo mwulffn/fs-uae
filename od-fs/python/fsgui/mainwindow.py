@@ -27,7 +27,15 @@ class MainWindow:
         # print("MainWindow.set", instance)
         cls._instance = instance
 
-    def __init__(self, title: str, size: Size, *, fullscreen: bool = False, extra_title: str = ""):
+    def __init__(
+        self,
+        title: str,
+        size: Size,
+        *,
+        fullscreen: bool = False,
+        hidden: bool = False,
+        extra_title: str = "",
+    ):
         self._top_border = 36
 
         self.show_extra_borders = True
@@ -66,7 +74,7 @@ class MainWindow:
 
         self._background_colour = (0, 0, 0, 255)
 
-        self._window = _fsapp.create_window(title, real_size, fullscreen)
+        self._window = _fsapp.create_window(title, real_size, fullscreen, hidden)
 
         MainWindow.set(self)
 

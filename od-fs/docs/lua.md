@@ -381,40 +381,27 @@ disk image which they create themselves. `test_public_disk.py` downloads the fre
 EmuTOS and boots that. `test_symbols.py` builds a program with vasm and vlink and puts it on a
 disk with xdftool (from amitools); it is skipped if those tools are not installed.
 
-The tests start FS-UAE with SDL hints in the environment which keep its window from taking the
-keyboard focus, so they can run while the computer is used for something else. The same works
-for any FS-UAE started by a script:
+The tests start FS-UAE with `--headless`, so no windows appear. Set `FSUAE_TEST_FOREGROUND=1` to
+see them; they are then started with SDL hints which keep them from taking the keyboard focus
+(`SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0`, `SDL_WINDOW_ACTIVATE_WHEN_RAISED=0` and, on macOS,
+`SDL_MAC_BACKGROUND_APP=1`).
+
+## Running without a visible window
+
+With `--headless` on the command line, or `headless=true` in the `.uae` file, FS-UAE creates its
+window without showing it:
 
 ```sh
-SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0 SDL_WINDOW_ACTIVATE_WHEN_RAISED=0 SDL_MAC_BACKGROUND_APP=1 \
-    od-fs/fs-uae config.uae
+od-fs/fs-uae --headless config.uae
 ```
 
-The last one is for macOS, and also keeps FS-UAE out of the Dock. Set `FSUAE_TEST_FOREGROUND=1`
-to run the tests with normal windows. FS-UAE does not grab the mouse unless asked to (Cmd+G or a
-middle click), and input sent with the `input` functions does not depend on the window having
-focus.
+The emulation runs as usual and at the same speed, and the `video` functions work, since they
+read the picture from the emulation and not from the window. Sound is not affected; turn it off
+separately if it should be quiet. The only way to control a headless FS-UAE is through Lua (the
+`lua` and `lua_port` options), and it quits with `emu.quit()` or when its process is ended.
 
-## Running fast
-
-`emu.warp(true)` runs the emulation as fast as the host allows. How fast that is depends mostly
-on how exact the emulation is. Measured on an Apple Silicon Mac, with a demo running:
-
-| Configuration | Speed in warp mode |
-| --- | --- |
-| A500 or A1200, standard (cycle-exact) | about 480 frames per second (9 times real time) |
-| A500 with `cycle_exact=false` | about 800 frames per second |
-| A1200 with `cycle_exact=false` and `cpu_compatible=false` | about 880 frames per second |
-
-Use the exact settings when the timing of the program matters, and the faster ones for tests of
-logic which does not depend on it. Other ways to save time:
-
-- Take a snapshot (`state.snapshot`) when the program has started, and restore it for each test
-  instead of booting again.
-- Remove breakpoints when they are no longer needed. While any breakpoint is set, every
-  instruction is checked: one breakpoint cost 10% with a demo running and 40% with a program in a
-  tight loop, and 51 breakpoints cost 27% and 66%. A tap only costs when memory in the same 64 KB
-  block is accessed.
+`headless` is the name WinUAE uses for the same thing. It is a hidden window, so FS-UAE still
+needs a graphical session to start in; it cannot run on a machine without a display.
 
 ## Running several instances
 
@@ -432,7 +419,7 @@ The test harness does this for every emulator it starts.
 
 ## Limitations
 
-- FS-UAE needs a window; it cannot run without a display.
+- FS-UAE needs a graphical session to run in, also with `--headless`, which only hides the window.
 - While the emulation is stopped, the window shows the last frame. The emulated screen is not
   redrawn when memory is changed.
 - After a state has been loaded (`state.load` or `state.restore`), the frame is two lines lower

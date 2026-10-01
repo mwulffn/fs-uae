@@ -33,6 +33,8 @@ struct fsgui_window {
     color_type background_color;
     const char* title;
     bool fullscreen;
+    // The window is created without being shown (the headless option).
+    bool hidden;
     // bool mousegrab;
     bool relative_mouse;
 };

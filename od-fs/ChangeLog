@@ -1,6 +1,9 @@
 Version 5.0.8:
 
 * Also add joystick mappings for port 0 and mouse mappings for port 1.
+* New option --headless (or headless=true in the .uae file) to run without showing the window.
+* Options starting with -- no longer make FS-UAE exit at startup (they were read by the built-in
+  Python as its own options).
 * Lua scripting: scripts can be loaded at startup or sent
   over a local socket to read and change memory and CPU registers, set breakpoints and memory
   taps, break on CPU exceptions and on symbols of the running program, send input, take

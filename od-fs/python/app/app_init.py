@@ -45,18 +45,19 @@ def on_exit() -> None:
 def app_init() -> None:
     atexit.register(on_exit)
 
-    # FIXME: program name is not part of sys.argv (for some reason), injecting
-    # a dummy program name now so later code works as expected.
-    sys.argv.insert(0, "fs-uae")
-
     fullscreen = False
+    headless = False
     for arg in sys.argv:
         if arg == "--fullscreen":
             fullscreen = True
+        elif arg == "--headless":
+            headless = True
+    if sys.argv[-1].endswith(".uae") and config_file_is_headless(sys.argv[-1]):
+        headless = True
 
     # Must create main window before starting emulation (at least currently)
     # due to fsemu_video_init being called when we do this.
-    _main_window = FSUAEMainWindow(fullscreen=fullscreen)
+    _main_window = FSUAEMainWindow(fullscreen=fullscreen, hidden=headless)
 
     # FIXME: if app_init raises an exception, the entire app hangs
     # Improve this a bit!
@@ -159,6 +160,25 @@ def app_init() -> None:
     print("---------------------------------------------------------------------------------------")
 
 
+def config_file_is_headless(path: str) -> bool:
+    """Check if a .uae file has headless=true (the window is then not shown).
+
+    The UAE core reads the option too, but the window is created before the
+    configuration is given to it.
+    """
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return False
+    headless = False
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip().lower() == "headless":
+            headless = value.strip().lower() in ("true", "yes", "1")
+    return headless
+
+
 def load_config(path: str) -> None:
 
     config: list[tuple[str, str]] = []
@@ -176,7 +196,6 @@ def load_config(path: str) -> None:
     # FIXME: Temporary hack to make relative references from .uae work! (Needs to be done after
     # loading the .uae config, which might itself be given as a relative path).
     os.chdir(os.path.dirname(path))
-
 
     # for key, value in config:
     #     import fsemu
