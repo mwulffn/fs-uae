@@ -1,7 +1,7 @@
 """Starts FS-UAE with the Lua socket enabled, for the tests in this directory.
 
 The tests need a Kickstart ROM, given with the environment variable
-FSUAE_TEST_KICKSTART. The matching Amiga model (A1200 or A500) is given with
+FSUAE_TEST_KICKSTART. The matching Amiga model (see MODELS) is given with
 FSUAE_TEST_MODEL, and defaults to A1200. FSUAE_TEST_BINARY overrides the
 path to the fs-uae executable, which defaults to od-fs/fs-uae.
 """
@@ -21,44 +21,48 @@ sys.path.insert(0, str(OD_FS_DIR / "scripts"))
 
 from fsuae_lua import LuaClient, LuaError, to_bytes  # noqa: E402, F401
 
-MODEL_OPTIONS = {
-    "A500": {"chipset": "ocs", "cpu_model": "68000", "chipmem_size": "1"},
-    "A1200": {"chipset": "aga", "cpu_model": "68020", "chipmem_size": "4"},
+# The models which FSUAE_TEST_MODEL can select. The value is given to the
+# quickstart option, which sets up the standard configuration of the model.
+MODELS = {
+    "A500": "A500,0",
+    "A500+": "A500+,0",
+    "A600": "A600,0",
+    "A1200": "A1200,0",
+    "A3000": "A3000,0",
+    "A4000": "A4000,0",
 }
 
 # A boot block program which takes over the machine and, once per frame:
 # - adds 1 to the long word at DATA_OFFSET (the frame counter)
 # - copies JOY1DAT to the word at DATA_OFFSET + 4
 # - copies the word at DATA_OFFSET + 6 to COLOR00 (the colour of the screen)
-# The offsets are relative to the start of the code (see find_test_program).
+# It waits for the vertical blank bit in INTREQR, which is set once per
+# frame also when the CPU runs at maximum speed (waiting for a beam position
+# is not reliable then). The offsets are relative to the start of the code
+# (see find_test_program).
 TEST_PROGRAM = bytes.fromhex(
     "4bf900dff000"  # 00 lea $dff000,a5
     "3b7c7fff009a"  # 06 move.w #$7fff,$9a(a5)   (INTENA: interrupts off)
     "3b7c7fff0096"  # 0c move.w #$7fff,$96(a5)   (DMACON: DMA off)
-    "41fa004a"  # 12 lea data(pc),a0
+    "41fa0028"  # 12 lea data(pc),a0
     "7000"  # 16 moveq #0,d0
-    "222d0004"  # 18 wait1: move.l 4(a5),d1    (VPOSR and VHPOSR)
-    "c2bc0001ff00"  # 1c and.l #$1ff00,d1
-    "b2bc0000c800"  # 22 cmp.l #$c800,d1         (wait for line 200)
-    "66ee"  # 28 bne.s wait1
-    "222d0004"  # 2a wait2: move.l 4(a5),d1
-    "c2bc0001ff00"  # 2e and.l #$1ff00,d1
-    "b2bc0000c800"  # 34 cmp.l #$c800,d1         (wait for the line after)
-    "67ee"  # 3a beq.s wait2
-    "5280"  # 3c addq.l #1,d0
-    "2080"  # 3e move.l d0,(a0)
-    "342d000c"  # 40 move.w $c(a5),d2          (JOY1DAT)
-    "31420004"  # 44 move.w d2,4(a0)
-    "3b6800060180"  # 48 move.w 6(a0),$180(a5)   (COLOR00)
-    "60c8"  # 4e bra.s wait1
-    "4e714e714e714e714e714e714e71"  # 50 (padding)
-    "00000000"  # 5e data: frame counter
-    "0000"  # 62 JOY1DAT copy
-    "0f00"  # 64 colour (red)
+    "322d001e"  # 18 wait: move.w $1e(a5),d1    (INTREQR)
+    "08010005"  # 1c btst #5,d1               (vertical blank)
+    "67f6"  # 20 beq.s wait
+    "3b7c0020009c"  # 22 move.w #$0020,$9c(a5)   (INTREQ: clear the bit)
+    "5280"  # 28 addq.l #1,d0
+    "2080"  # 2a move.l d0,(a0)
+    "342d000c"  # 2c move.w $c(a5),d2          (JOY1DAT)
+    "31420004"  # 30 move.w d2,4(a0)
+    "3b6800060180"  # 34 move.w 6(a0),$180(a5)   (COLOR00)
+    "60dc"  # 3a bra.s wait
+    "00000000"  # 3c data: frame counter
+    "0000"  # 40 JOY1DAT copy
+    "0f00"  # 42 colour (red)
 )
 LOOP_OFFSET = 0x18
-ADDQ_OFFSET = 0x3C
-DATA_OFFSET = 0x5E
+ADDQ_OFFSET = 0x28
+DATA_OFFSET = 0x3C
 COUNTER_OFFSET = DATA_OFFSET
 JOYSTICK_OFFSET = DATA_OFFSET + 4
 COLOUR_OFFSET = DATA_OFFSET + 6
@@ -102,8 +106,9 @@ class Emulator:
         self.directory = tempfile.TemporaryDirectory(prefix="fsuae-lua-test-")
         self.path = Path(self.directory.name)
         self.port = free_port()
-        config = {"kickstart_rom_file": kickstart, "lua_port": str(self.port)}
-        config.update(MODEL_OPTIONS[model])
+        # The quickstart option must come first, as it sets all the others.
+        config = {"quickstart": MODELS[model]}
+        config.update({"kickstart_rom_file": kickstart, "lua_port": str(self.port)})
         if test_disk:
             create_test_disk(self.path / "test.adf")
             config["floppy0"] = str(self.path / "test.adf")

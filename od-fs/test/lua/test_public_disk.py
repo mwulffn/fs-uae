@@ -72,6 +72,17 @@ class EmuTosTest(unittest.TestCase):
             else:
                 raise RuntimeError("EmuTOS did not boot")
             cls.lua.call("emu.warp(false) input.port_mode(0, 'mouse') emu.wait_frames(50)")
+            # The desktop is drawn in several steps, which takes a while on
+            # the slower models. Wait until the screen has stopped changing.
+            previous = None
+            for _ in range(60):
+                screen = cls.lua.eval("video.pixels()")
+                if screen == previous:
+                    break
+                previous = screen
+                cls.lua.call("emu.wait_frames(50)")
+            else:
+                raise RuntimeError("The EmuTOS desktop did not finish drawing")
         except Exception:
             cls.emulator.stop()
             raise
