@@ -56,6 +56,9 @@
 #endif
 #include "bsdsocket.h"
 #include "devices.h"
+#ifdef WITH_LUA
+#include "luascript.h"
+#endif
 #ifdef WITH_DRACO
 #include "draco.h"
 #endif
@@ -4647,6 +4650,9 @@ static void check_debugger(void)
 {
 	if (regs.spcflags & SPCFLAG_BRK) {
 		unset_special(SPCFLAG_BRK);
+#if defined(FSUAE) && defined(WITH_LUA)
+		uae_lua_service();
+#endif
 #ifdef DEBUGGER
 		if (debugging) {
 			debug();
@@ -4820,6 +4826,9 @@ static int do_specialties (int cycles)
 
 	if (spcflags & SPCFLAG_BRK) {
 		unset_special(SPCFLAG_BRK);
+#if defined(FSUAE) && defined(WITH_LUA)
+		uae_lua_service();
+#endif
 #ifdef DEBUGGER
 		if (debugging) {
 			debug();

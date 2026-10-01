@@ -13,9 +13,27 @@
 #include "luaengine.h"
 
 #include "luascript.h"
+#include "newcpu.h"
 #include "options.h"
 
+#include <vector>
+
 lua_State *g_luaengine_state;
+
+// A task is a Lua coroutine which can wait for emulated frames to pass.
+struct luaengine_task {
+    lua_State *thread;
+    // Registry reference keeping the thread alive.
+    int ref;
+    int64_t wake_frame;
+};
+
+static std::vector<luaengine_task *> g_tasks;
+// Registry references to the functions registered with emu.on_frame.
+static std::vector<int> g_frame_callbacks;
+static int64_t g_frame;
+// Number of vsyncs seen since the last call to uae_lua_service.
+static int g_pending_frames;
 
 void luaengine_log_error(lua_State *L, const char *context)
 {
@@ -48,14 +66,128 @@ static int l_print(lua_State *L)
     return 0;
 }
 
+// Resumes the task with nargs arguments on its stack. The task is freed if
+// it finished, or put on the waiting list if it yielded.
+static void resume_task(luaengine_task *task, int nargs)
+{
+    lua_State *L = g_luaengine_state;
+    int nresults;
+    int status = lua_resume(task->thread, L, nargs, &nresults);
+    if (status == LUA_YIELD) {
+        // The yielded value is the number of frames to wait.
+        lua_Integer frames = nresults > 0 ? lua_tointeger(task->thread, -1) : 1;
+        lua_pop(task->thread, nresults);
+        task->wake_frame = g_frame + (frames > 1 ? frames : 1);
+        g_tasks.push_back(task);
+        return;
+    }
+    if (status != LUA_OK) {
+        luaL_traceback(L, task->thread, lua_tostring(task->thread, -1), 0);
+        luaengine_log_error(L, "Error");
+    }
+    luaL_unref(L, LUA_REGISTRYINDEX, task->ref);
+    delete task;
+}
+
+void luaengine_start_task(lua_State *L, int nargs)
+{
+    luaengine_task *task = new luaengine_task();
+    task->thread = lua_newthread(L);
+    task->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    task->wake_frame = 0;
+    lua_xmove(L, task->thread, nargs + 1);
+    resume_task(task, nargs);
+}
+
+static void resume_due_tasks(void)
+{
+    // Tasks resumed here may be added to g_tasks again.
+    std::vector<luaengine_task *> tasks;
+    tasks.swap(g_tasks);
+    for (luaengine_task *task : tasks) {
+        if (task->wake_frame <= g_frame) {
+            resume_task(task, 0);
+        } else {
+            g_tasks.push_back(task);
+        }
+    }
+}
+
+static void run_frame_callbacks(void)
+{
+    lua_State *L = g_luaengine_state;
+    // Callbacks may register or remove callbacks.
+    std::vector<int> callbacks = g_frame_callbacks;
+    for (int ref : callbacks) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+            luaengine_log_error(L, "Error in frame callback");
+        }
+    }
+    // The original Lua layer called this global function on every vsync.
+    if (lua_getglobal(L, "on_uae_vsync") == LUA_TFUNCTION) {
+        if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+            luaengine_log_error(L, "on_uae_vsync");
+        }
+    } else {
+        lua_pop(L, 1);
+    }
+}
+
 static int l_emu_log(lua_State *L)
 {
     write_log("[LUA] %s\n", luaL_checkstring(L, 1));
     return 0;
 }
 
+static int l_emu_frame(lua_State *L)
+{
+    lua_pushinteger(L, g_frame);
+    return 1;
+}
+
+static int l_emu_wait_frames(lua_State *L)
+{
+    lua_pushinteger(L, luaL_optinteger(L, 1, 1));
+    return lua_yield(L, 1);
+}
+
+static int l_emu_wait_next_frame(lua_State *L)
+{
+    lua_pushinteger(L, 1);
+    return lua_yield(L, 1);
+}
+
+static int l_emu_on_frame(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_settop(L, 1);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    g_frame_callbacks.push_back(ref);
+    lua_pushinteger(L, ref);
+    return 1;
+}
+
+static int l_emu_remove_frame_callback(lua_State *L)
+{
+    int ref = (int) luaL_checkinteger(L, 1);
+    for (size_t i = 0; i < g_frame_callbacks.size(); i++) {
+        if (g_frame_callbacks[i] == ref) {
+            g_frame_callbacks.erase(g_frame_callbacks.begin() + i);
+            luaL_unref(L, LUA_REGISTRYINDEX, ref);
+            break;
+        }
+    }
+    return 0;
+}
+
 static const luaL_Reg emu_functions[] = {
+    {"frame", l_emu_frame},
     {"log", l_emu_log},
+    {"on_frame", l_emu_on_frame},
+    {"remove_frame_callback", l_emu_remove_frame_callback},
+    {"wait_frames", l_emu_wait_frames},
+    {"wait_next_frame", l_emu_wait_next_frame},
     {NULL, NULL},
 };
 
@@ -78,9 +210,7 @@ void uae_lua_load(const TCHAR *filename)
         luaengine_log_error(L, "Load failed");
         return;
     }
-    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-        luaengine_log_error(L, filename);
-    }
+    luaengine_start_task(L, 0);
 }
 
 void uae_lua_loadall(void)
@@ -105,16 +235,28 @@ void uae_lua_loadall(void)
 
 void uae_lua_run_handler(const char *name)
 {
-    lua_State *L = g_luaengine_state;
-    if (L == NULL) {
+    if (g_luaengine_state == NULL) {
         return;
     }
-    if (lua_getglobal(L, name) != LUA_TFUNCTION) {
-        lua_pop(L, 1);
+    // This is called from the middle of an emulated instruction (at least
+    // in cycle-exact modes), so the work is left to uae_lua_service, which
+    // the CPU loop calls before the next instruction.
+    if (strcmp(name, "on_uae_vsync") == 0) {
+        g_pending_frames += 1;
+        set_special(SPCFLAG_BRK);
+    }
+}
+
+void uae_lua_service(void)
+{
+    if (g_luaengine_state == NULL) {
         return;
     }
-    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-        luaengine_log_error(L, name);
+    while (g_pending_frames > 0) {
+        g_pending_frames -= 1;
+        g_frame += 1;
+        run_frame_callbacks();
+        resume_due_tasks();
     }
 }
 
@@ -124,6 +266,12 @@ void uae_lua_init(void)
 
 void uae_lua_free(void)
 {
+    for (luaengine_task *task : g_tasks) {
+        delete task;
+    }
+    g_tasks.clear();
+    g_frame_callbacks.clear();
+    g_pending_frames = 0;
     if (g_luaengine_state != NULL) {
         lua_close(g_luaengine_state);
         g_luaengine_state = NULL;
