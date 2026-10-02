@@ -622,6 +622,8 @@ static uae_u8 *memory_state_data;
 static size_t memory_state_size;
 static bool memory_state_save;
 static bool memory_state_restore;
+// The number of frames a state save has been waiting for the file system.
+int savestate_busy_frames;
 #endif
 
 void restore_state (const TCHAR *filename)
@@ -1367,8 +1369,6 @@ static void save_state_memory(void)
 	xfree (memory_state_data);
 	memory_state_data = NULL;
 	memory_state_size = 0;
-	if (!save_filesys_cando ())
-		return;
 	new_blitter = false;
 	custom_prepare_savestate();
 	struct zfile *f = zfile_fopen_empty (NULL, _T("<memory>"));
@@ -1469,6 +1469,14 @@ bool savestate_check(void)
 		return true;
 	} else if (savestate_state == STATE_SAVE) {
 #ifdef FSUAE
+		// While the file system of a directory hard drive is handling a
+		// request, its state cannot be saved. The request to save stays,
+		// and is tried again at the end of the next frame.
+		if (!save_filesys_cando ()) {
+			savestate_busy_frames++;
+			return false;
+		}
+		savestate_busy_frames = 0;
 		if (memory_state_save) {
 			memory_state_save = false;
 			save_state_memory();

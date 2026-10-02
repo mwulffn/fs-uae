@@ -310,7 +310,15 @@ are not available.
 FS-UAE saves and loads states at the end of a frame. The functions therefore let the emulation run
 to the end of the current frame, also when it is paused, and loading returns one frame after the
 state was loaded. Lua variables, breakpoints and taps are not part of the state and are kept.
-Saving fails while directory hard drives are in use.
+
+States work with a directory on the host as hard drive, with one caveat. While the file system
+of such a drive is handling a request from the Amiga, a state cannot be saved; `state.save` and
+`state.snapshot` then wait and try again after each frame (for up to 100 frames). Loading a state
+which was saved while a program was reading or writing files on such a drive can leave that
+program waiting forever for an answer from the file system. Take snapshots at a point where the
+program is not using the drive (for a game, after it has loaded). Floppy images are emulated at
+the level of the hardware and do not go through this file system; hard disk image files have not
+been tested.
 
 ### media
 

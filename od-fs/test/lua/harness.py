@@ -150,6 +150,27 @@ def build_dos_disk(directory: Path) -> Path:
     return disk
 
 
+def build_program(directory: Path, name: str) -> Path:
+    """Build <name>.s in this directory with vasm and vlink. Return the executable."""
+    source = Path(__file__).with_name(name + ".s")
+    run_tool("vasmm68k_mot", "-quiet", "-Fhunk", "-o", directory / (name + ".o"), source)
+    run_tool("vlink", "-bamigahunk", "-o", directory / name, directory / (name + ".o"))
+    return directory / name
+
+
+def build_directory_drive(directory: Path, name: str) -> Path:
+    """Create a directory to use as a hard drive, which starts the program.
+
+    The directory holds the program built from <name>.s and a
+    startup-sequence which runs it. Returns the path of the directory.
+    """
+    drive = directory / "drive"
+    (drive / "s").mkdir(parents=True)
+    shutil.copy(build_program(directory, name), drive / name)
+    (drive / "s" / "startup-sequence").write_text(name + "\n")
+    return drive
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

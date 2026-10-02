@@ -13,8 +13,23 @@
 #include "savestate.h"
 #include "zfile.h"
 
-static int save_finished(lua_State *L, int status, lua_KContext context)
+// While a directory hard drive is handling a request from the Amiga, the
+// UAE core does not save states, and tries again at the end of the next
+// frame. This is how many frames state.save and state.snapshot wait.
+#define MAX_SAVE_FRAMES 100
+
+// Returns true if the state has still not been saved because the file
+// system is busy, and there are frames left to wait.
+static bool save_must_wait(lua_KContext frames)
 {
+    return savestate_state != 0 && savestate_busy_frames > 0 && frames < MAX_SAVE_FRAMES;
+}
+
+static int save_finished(lua_State *L, int status, lua_KContext frames)
+{
+    if (save_must_wait(frames)) {
+        return luaengine_yield_frames(L, 1, save_finished, frames + 1);
+    }
     if (savestate_state != 0) {
         // The state is saved when savestate_state is cleared.
         savestate_state = 0;
@@ -31,7 +46,7 @@ static int l_state_save(lua_State *L)
     luaL_argcheck(L, strlen(path) < MAX_DPATH, 1, "path is too long");
     _tcscpy(savestate_fname, path);
     savestate_state = STATE_SAVE;
-    return luaengine_yield_frames(L, 1, save_finished);
+    return luaengine_yield_frames(L, 1, save_finished, 1);
 }
 
 // The number of frames to wait for a state to be loaded.
@@ -89,8 +104,11 @@ static int snapshot_len(lua_State *L)
     return 1;
 }
 
-static int snapshot_finished(lua_State *L, int status, lua_KContext context)
+static int snapshot_finished(lua_State *L, int status, lua_KContext frames)
 {
+    if (save_must_wait(frames)) {
+        return luaengine_yield_frames(L, 1, snapshot_finished, frames + 1);
+    }
     size_t size;
     uae_u8 *data = savestate_memory_save_result(&size);
     if (data == NULL) {
@@ -109,7 +127,7 @@ static int snapshot_finished(lua_State *L, int status, lua_KContext context)
 static int l_state_snapshot(lua_State *L)
 {
     savestate_memory_save_request();
-    return luaengine_yield_frames(L, 1, snapshot_finished);
+    return luaengine_yield_frames(L, 1, snapshot_finished, 1);
 }
 
 // state.restore(snapshot) loads a state returned by state.snapshot. It can
