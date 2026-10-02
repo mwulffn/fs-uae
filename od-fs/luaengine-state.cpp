@@ -9,6 +9,7 @@
 #include "luaengine.h"
 
 #include "disk.h"
+#include "newcpu.h"
 #include "options.h"
 #include "savestate.h"
 #include "zfile.h"
@@ -17,6 +18,27 @@
 // UAE core does not save states, and tries again at the end of the next
 // frame. This is how many frames state.save and state.snapshot wait.
 #define MAX_SAVE_FRAMES 100
+
+// The UAE core saves a state at the end of a frame. With a cycle-exact CPU
+// that is in the middle of an instruction, and the state then needs a
+// record of what the instruction has done so far, for the instruction to be
+// continued when the state is loaded. The CPU tracer of the UAE core makes
+// that record. Without it, the instruction is cut in two, and the program
+// can crash when the state is loaded.
+//
+// The tracer must have followed the instruction from its start, so the UAE
+// core turns it on a frame before it saves a state for one of its own keys,
+// and off again afterwards. The functions here do the same, but only for
+// the 68000: the tracer also exists for the 68020, where states saved with
+// it crashed the program more often than states saved without it (see issue
+// 19 in mwulffn/fs-uae).
+//
+// Returns true if the tracer was turned on, and the state must not be saved
+// before the end of the next frame.
+static bool start_cpu_tracer(void)
+{
+    return currprefs.cpu_model == 68000 && !is_cpu_tracer() && set_cpu_tracer(true);
+}
 
 // Returns true if the state has still not been saved because the file
 // system is busy, and there are frames left to wait.
@@ -30,6 +52,8 @@ static int save_finished(lua_State *L, int status, lua_KContext frames)
     if (save_must_wait(frames)) {
         return luaengine_yield_frames(L, 1, save_finished, frames + 1);
     }
+    // This leaves the tracer on if something else needs it.
+    set_cpu_tracer(false);
     if (savestate_state != 0) {
         // The state is saved when savestate_state is cleared.
         savestate_state = 0;
@@ -38,15 +62,25 @@ static int save_finished(lua_State *L, int status, lua_KContext frames)
     return 0;
 }
 
+static int save_start(lua_State *L, int status, lua_KContext context)
+{
+    _tcscpy(savestate_fname, lua_tostring(L, 1));
+    savestate_state = STATE_SAVE;
+    return luaengine_yield_frames(L, 1, save_finished, 1);
+}
+
 // state.save(path) saves a state file. The UAE core saves states at the
-// end of a frame, so this returns when the current frame is finished.
+// end of a frame, so this returns when the current frame is finished, or
+// the one after it if the CPU tracer had to be turned on first.
 static int l_state_save(lua_State *L)
 {
     const char *path = luaL_checkstring(L, 1);
     luaL_argcheck(L, strlen(path) < MAX_DPATH, 1, "path is too long");
-    _tcscpy(savestate_fname, path);
-    savestate_state = STATE_SAVE;
-    return luaengine_yield_frames(L, 1, save_finished, 1);
+    lua_settop(L, 1);
+    if (start_cpu_tracer()) {
+        return luaengine_yield_frames(L, 1, save_start, 0);
+    }
+    return save_start(L, LUA_OK, 0);
 }
 
 // The number of frames to wait for a state to be loaded.
@@ -109,6 +143,7 @@ static int snapshot_finished(lua_State *L, int status, lua_KContext frames)
     if (save_must_wait(frames)) {
         return luaengine_yield_frames(L, 1, snapshot_finished, frames + 1);
     }
+    set_cpu_tracer(false);
     size_t size;
     uae_u8 *data = savestate_memory_save_result(&size);
     if (data == NULL) {
@@ -122,12 +157,20 @@ static int snapshot_finished(lua_State *L, int status, lua_KContext frames)
     return 1;
 }
 
-// state.snapshot() saves a state in memory and returns it. Like state.save,
-// it returns when the current frame is finished.
-static int l_state_snapshot(lua_State *L)
+static int snapshot_start(lua_State *L, int status, lua_KContext context)
 {
     savestate_memory_save_request();
     return luaengine_yield_frames(L, 1, snapshot_finished, 1);
+}
+
+// state.snapshot() saves a state in memory and returns it. The state is
+// saved at the same time as state.save would save it.
+static int l_state_snapshot(lua_State *L)
+{
+    if (start_cpu_tracer()) {
+        return luaengine_yield_frames(L, 1, snapshot_start, 0);
+    }
+    return snapshot_start(L, LUA_OK, 0);
 }
 
 // state.restore(snapshot) loads a state returned by state.snapshot. It can

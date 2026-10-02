@@ -311,14 +311,21 @@ FS-UAE saves and loads states at the end of a frame. The functions therefore let
 to the end of the current frame, also when it is paused, and loading returns one frame after the
 state was loaded. Lua variables, breakpoints and taps are not part of the state and are kept.
 
-With a cycle-exact CPU, which is the standard for the A500 and A1200 configurations, a state is
-saved in the middle of an instruction, and the program which was running can crash when the state
-is loaded. With a program reading a file in a loop, this happened for 3% of the states on the
-A500 and 9% on the A1200. A state which crashes the program does so every time it is loaded, and
-the others can be loaded any number of times. Without cycle-exact emulation (`cycle_exact=false`)
-it did not happen in 1,200 states. So for work which depends on states, either turn cycle-exact
-emulation off, or check that the program is alive after the first load of a state and take a new
-one if it is not. See issue 19 in mwulffn/fs-uae.
+With a cycle-exact CPU, which is the standard for the A500 and A1200 configurations, the end of a
+frame comes in the middle of an instruction, and a state saved there needs a record of what the
+instruction has done so far. The UAE core has a CPU tracer which makes that record.
+
+- With a 68000 (A500), `state.save` and `state.snapshot` turn the tracer on, wait one frame more,
+  save the state and turn the tracer off again. With a program reading a file in a loop, 2 of
+  about 2,000 such states crashed the program when they were loaded (3% without the tracer).
+- With a 68020 (A1200), the tracer has faults and is not used. About 8% of the states crashed the
+  program when they were loaded. A state which crashes the program does so every time it is
+  loaded, and the others can be loaded any number of times.
+- Without cycle-exact emulation (`cycle_exact=false`), none of 1,200 states did.
+
+So for work on an A1200 which depends on states, either turn cycle-exact emulation off, or check
+that the program is alive after the first load of a state and take a new one if it is not. See
+issue 19 in mwulffn/fs-uae.
 
 States work with a directory on the host as hard drive. While the file system of such a drive is
 handling a request from the Amiga, a state cannot be saved; `state.save` and `state.snapshot` then
